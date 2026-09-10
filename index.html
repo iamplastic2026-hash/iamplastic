@@ -301,12 +301,12 @@
     padding: 3px 7px; border-radius: 3px; align-self: flex-start; font-weight: 500;
   }
   body[data-mode="wholesale"] .card-tier { background: var(--brand-soft); color: var(--brand-dark); }
+  .card { cursor: pointer; }
   .card-meta {
     display: flex; justify-content: space-between; font-size: 11px; color: var(--text-faint);
-    padding-top: 4px; border-top: 1px dashed var(--border); cursor: pointer;
+    padding-top: 4px; border-top: 1px dashed var(--border);
   }
   .card-meta .rating { color: var(--gold); }
-  .card-name, .card-price-row, .card-img { cursor: pointer; }
   .card-actions {
     display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
     margin-top: auto; padding-top: 8px;
@@ -988,21 +988,21 @@
     const tier = S.mode === "wholesale"
       ? `<div class="card-tier">✓ ราคาส่ง · ขั้นต่ำ ${p.moq}</div>`
       : `<div class="card-tier">ส่งเริ่ม ${money(p.wholesale)} (จาก ${p.moq})</div>`;
-    return `<div class="card">
-      <div class="card-img" onclick="go('/product/${p.id}')">
+    return `<div class="card" onclick="go('/product/${p.id}')">
+      <div class="card-img">
         ${p.icon}
         <div class="badge-disc">-${p.discount}%</div>
         ${p.mall ? `<div class="badge-mall">iamplastic</div>` : ""}
       </div>
       <div class="card-body">
-        <div class="card-name" onclick="go('/product/${p.id}')">${p.name}</div>
-        <div class="card-price-row" onclick="go('/product/${p.id}')">
+        <div class="card-name">${p.name}</div>
+        <div class="card-price-row">
           <span class="card-price"><span class="thb">฿</span>${price.toLocaleString("th-TH", { minimumFractionDigits: price%1?2:0 })}</span>
           <span class="card-strike">${money(p.strike)}</span>
         </div>
         ${tier}
-        <div class="card-meta" onclick="go('/product/${p.id}')"><span class="rating">★ ${p.rating}</span><span>ขาย ${p.sold}</span></div>
-        <div class="card-actions">
+        <div class="card-meta"><span class="rating">★ ${p.rating}</span><span>ขาย ${p.sold}</span></div>
+        <div class="card-actions" onclick="event.stopPropagation()">
           <button class="card-btn card-btn-cart" onclick="event.stopPropagation();quickAddToCart('${p.id}');" title="ใส่ตะกร้า">
             <span>🛒</span> ใส่ตะกร้า
           </button>
