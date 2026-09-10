@@ -1012,8 +1012,9 @@
     deletedProducts: safeGet("iamplastic.deletedProducts", []),
     newProducts: safeGet("iamplastic.newProducts", []),
     // Google Sheet sync — DEFAULT URL ทำให้ทุก browser เชื่อม Sheet อัตโนมัติ
-    sheetApiUrl: safeGet("iamplastic.sheetApiUrl", "https://script.google.com/macros/s/AKfycbwjsZOUAwp8kzty-sVAMRKEyiYvDJ49AAAr-mqCWTQlbUXarUNG4VqGNLrtsVUraEe6/exec"),
-    sheetToken: safeGet("iamplastic.sheetToken", "iamplastic_secret_2026"),
+    // ใช้ || เพื่อ replace ค่า "" ที่เก่าค้างใน localStorage
+    sheetApiUrl: safeGet("iamplastic.sheetApiUrl", "") || "https://script.google.com/macros/s/AKfycbwjsZOUAwp8kzty-sVAMRKEyiYvDJ49AAAr-mqCWTQlbUXarUNG4VqGNLrtsVUraEe6/exec",
+    sheetToken: safeGet("iamplastic.sheetToken", "") || "iamplastic_secret_2026",
     sheetProducts: safeGet("iamplastic.sheetProducts", null),
     sheetOrders: safeGet("iamplastic.sheetOrders", null),
     sheetLastSync: safeGet("iamplastic.sheetLastSync", 0),
