@@ -303,9 +303,40 @@
   body[data-mode="wholesale"] .card-tier { background: var(--brand-soft); color: var(--brand-dark); }
   .card-meta {
     display: flex; justify-content: space-between; font-size: 11px; color: var(--text-faint);
-    margin-top: auto; padding-top: 4px; border-top: 1px dashed var(--border);
+    padding-top: 4px; border-top: 1px dashed var(--border); cursor: pointer;
   }
   .card-meta .rating { color: var(--gold); }
+  .card-name, .card-price-row, .card-img { cursor: pointer; }
+  .card-actions {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    margin-top: auto; padding-top: 8px;
+  }
+  .card-btn {
+    padding: 8px 6px; border: 0; border-radius: 5px;
+    font-weight: 700; font-size: 12px; cursor: pointer;
+    font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 4px;
+    transition: transform .1s, filter .15s;
+  }
+  .card-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+  .card-btn:active { transform: translateY(0); }
+  .card-btn-cart {
+    background: var(--brand-soft); color: var(--brand-dark);
+    border: 1px solid var(--brand);
+  }
+  .card-btn-buy {
+    background: var(--brand); color: #fff;
+    box-shadow: 0 2px 6px rgba(238,77,45,.25);
+  }
+  body[data-mode="wholesale"] .card-btn-cart {
+    background: var(--wholesale-soft); color: var(--wholesale); border-color: var(--wholesale);
+  }
+  body[data-mode="wholesale"] .card-btn-buy {
+    background: var(--wholesale); box-shadow: 0 2px 6px rgba(11,107,91,.25);
+  }
+  @media (max-width: 480px) {
+    .card-btn { font-size: 11px; padding: 7px 4px; }
+    .card-btn-cart span:not(:first-child) { display: none; }
+  }
   .badge-disc {
     position: absolute; top: 0; right: 0;
     background: var(--gold); color: #1a1a1a;
@@ -317,6 +348,67 @@
     background: var(--brand); color: #fff;
     font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px;
     letter-spacing: .05em;
+  }
+
+  /* ---- Product detail — extra sections ---- */
+  .pd-detail-tabs { margin-top: 20px; display: flex; flex-direction: column; gap: 16px; }
+  .pd-section {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px 22px;
+  }
+  .pd-h3 {
+    font-size: 16px; font-weight: 700; margin: 0 0 14px;
+    padding-bottom: 10px; border-bottom: 2px solid var(--brand-soft);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .pd-desc { font-size: 13px; line-height: 1.75; color: var(--text-muted); white-space: pre-line; }
+  .pd-specs { width: 100%; font-size: 13px; border-collapse: collapse; }
+  .pd-specs td {
+    padding: 10px 4px; border-bottom: 1px dashed var(--border);
+  }
+  .pd-specs td:first-child {
+    color: var(--text-muted); width: 40%; font-weight: 500;
+  }
+  .pd-specs td:last-child { font-weight: 600; }
+  .pd-variants-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+  }
+  .pd-variant {
+    border: 2px solid var(--border); border-radius: 8px;
+    padding: 14px 10px; text-align: center; cursor: pointer;
+    transition: all .15s;
+  }
+  .pd-variant:hover { border-color: var(--brand); background: var(--brand-soft); }
+  .pd-variant.on {
+    border-color: var(--brand); background: var(--brand-soft);
+    box-shadow: 0 2px 8px rgba(238,77,45,.2);
+  }
+  .pd-variant-icon { font-size: 36px; margin-bottom: 6px; }
+  .pd-variant-name { font-size: 12px; font-weight: 600; }
+  .pd-variant-check { font-size: 10px; color: var(--brand); margin-top: 4px; font-weight: 700; }
+  .pd-ship-grid, .pd-pay-grid {
+    display: grid; gap: 10px;
+  }
+  .pd-ship-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .pd-pay-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .pd-ship-card {
+    padding: 12px 14px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface-warm);
+    display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
+    font-size: 12px;
+  }
+  .pd-pay-item {
+    padding: 12px 14px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface-warm);
+    font-size: 13px; display: flex; align-items: center; gap: 10px;
+  }
+  .pd-pay-item span { font-size: 20px; }
+  @media (max-width: 640px) {
+    .pd-section { padding: 16px; }
+    .pd-h3 { font-size: 15px; }
+    .pd-ship-card { grid-template-columns: auto 1fr; gap: 8px; }
+    .pd-ship-card > *:last-child { grid-column: 2; }
   }
 
   /* ---- Product detail page ---- */
@@ -896,22 +988,42 @@
     const tier = S.mode === "wholesale"
       ? `<div class="card-tier">✓ ราคาส่ง · ขั้นต่ำ ${p.moq}</div>`
       : `<div class="card-tier">ส่งเริ่ม ${money(p.wholesale)} (จาก ${p.moq})</div>`;
-    return `<div class="card" onclick="go('/product/${p.id}')">
-      <div class="card-img">
+    return `<div class="card">
+      <div class="card-img" onclick="go('/product/${p.id}')">
         ${p.icon}
         <div class="badge-disc">-${p.discount}%</div>
-        ${p.mall ? `<div class="badge-mall">PACKONE</div>` : ""}
+        ${p.mall ? `<div class="badge-mall">iamplastic</div>` : ""}
       </div>
       <div class="card-body">
-        <div class="card-name">${p.name}</div>
-        <div class="card-price-row">
+        <div class="card-name" onclick="go('/product/${p.id}')">${p.name}</div>
+        <div class="card-price-row" onclick="go('/product/${p.id}')">
           <span class="card-price"><span class="thb">฿</span>${price.toLocaleString("th-TH", { minimumFractionDigits: price%1?2:0 })}</span>
           <span class="card-strike">${money(p.strike)}</span>
         </div>
         ${tier}
-        <div class="card-meta"><span class="rating">★ ${p.rating}</span><span>ขาย ${p.sold}</span></div>
+        <div class="card-meta" onclick="go('/product/${p.id}')"><span class="rating">★ ${p.rating}</span><span>ขาย ${p.sold}</span></div>
+        <div class="card-actions">
+          <button class="card-btn card-btn-cart" onclick="event.stopPropagation();quickAddToCart('${p.id}');" title="ใส่ตะกร้า">
+            <span>🛒</span> ใส่ตะกร้า
+          </button>
+          <button class="card-btn card-btn-buy" onclick="event.stopPropagation();quickBuyNow('${p.id}');" title="ซื้อเลย">
+            ⚡ ซื้อเลย
+          </button>
+        </div>
       </div>
     </div>`;
+  }
+  function quickAddToCart(pid) {
+    const p = PRODUCTS.find(x => x.id === pid);
+    if (!p) return;
+    const size = (p.sizes && p.sizes[0]) || 'มาตรฐาน';
+    const qty = S.mode === 'wholesale' ? (p.moq || 1) : 1;
+    addToCart(pid, qty, size);
+    toast(`+ ${p.name.slice(0, 20)}… × ${qty} 🛒`);
+  }
+  function quickBuyNow(pid) {
+    quickAddToCart(pid);
+    setTimeout(() => go('/cart'), 250);
   }
 
   function viewHome() {
@@ -995,7 +1107,7 @@
         </div>
         <div>
           <div class="pd-badges">
-            ${p.mall ? '<span class="mall">PACKONE OFFICIAL</span>' : ''}
+            ${p.mall ? '<span class="mall">iamplastic OFFICIAL</span>' : ''}
             <span class="disc">FLASH -${p.discount}%</span>
           </div>
           <h1 class="pd-name">${p.name}</h1>
@@ -1054,12 +1166,95 @@
             <div>💳 พร้อมเพย์ / โอนธนาคาร</div>
             <div>↩️ คืนได้ภายใน 7 วัน</div>
           </div>
-
-          <div style="margin-top:20px;padding:16px;background:var(--surface-warm);border-radius:8px">
-            <div style="font-size:12px;font-weight:600;margin-bottom:6px">รายละเอียดสินค้า</div>
-            <div style="font-size:12px;color:var(--text-muted);line-height:1.7">${p.desc}</div>
-          </div>
         </div>
+      </div>
+
+      <!-- ==== ส่วนรายละเอียดเพิ่มเติม ==== -->
+      <div class="pd-detail-tabs">
+        <!-- Description -->
+        <section class="pd-section">
+          <h3 class="pd-h3">📋 รายละเอียดสินค้า</h3>
+          <div class="pd-desc">${p.desc || 'ยังไม่มีคำอธิบาย'}</div>
+        </section>
+
+        <!-- Specs -->
+        <section class="pd-section">
+          <h3 class="pd-h3">📐 ข้อมูลจำเพาะ</h3>
+          <table class="pd-specs">
+            <tr><td>รหัสสินค้า (SKU)</td><td class="mono">${p.id}</td></tr>
+            <tr><td>หมวดหมู่</td><td>${CATS.find(c=>c.id===p.cat)?.name || p.cat}</td></tr>
+            <tr><td>รูปแบบ/ขนาดที่มี</td><td>${opts.length} แบบ (${opts.join(', ')})</td></tr>
+            <tr><td>สต็อกคงเหลือ</td><td class="mono">${p.stock.toLocaleString()} แพ็ค</td></tr>
+            <tr><td>ราคาปลีก</td><td class="mono">${money(p.retail)} / แพ็ค</td></tr>
+            <tr><td>ราคาส่ง (เริ่มต้น)</td><td class="mono" style="color:var(--wholesale)">${money(p.wholesale)} / แพ็ค</td></tr>
+            <tr><td>ขั้นต่ำสั่งราคาส่ง</td><td class="mono">${p.moq} แพ็ค</td></tr>
+            <tr><td>ยอดขาย</td><td>${p.sold} แพ็ค</td></tr>
+            <tr><td>คะแนนรีวิว</td><td><span style="color:var(--gold)">★ ${p.rating}</span> / 5</td></tr>
+            <tr><td>ผู้จำหน่าย</td><td>${p.mall ? 'iamplastic (Official Store)' : 'iamplastic'}</td></tr>
+          </table>
+        </section>
+
+        <!-- Variants preview -->
+        ${opts.length > 1 ? `
+        <section class="pd-section">
+          <h3 class="pd-h3">🎨 รูปแบบทั้งหมด (${opts.length} แบบ)</h3>
+          <div class="pd-variants-grid">
+            ${opts.map(s => `<div class="pd-variant ${s===S.pdSize?'on':''}" onclick="S.pdSize='${s}';render()">
+              <div class="pd-variant-icon">${p.icon}</div>
+              <div class="pd-variant-name">${s}</div>
+              ${s===S.pdSize?'<div class="pd-variant-check">✓ เลือกอยู่</div>':''}
+            </div>`).join("")}
+          </div>
+        </section>` : ''}
+
+        <!-- Shipping info -->
+        <section class="pd-section">
+          <h3 class="pd-h3">🚚 การจัดส่ง</h3>
+          <div class="pd-ship-grid">
+            <div class="pd-ship-card">
+              <div style="font-size:22px">📦</div>
+              <div><b>Kerry Express</b><div style="font-size:11px;color:var(--text-muted)">1-2 วันทำการ</div></div>
+              <div class="mono" style="color:var(--success);font-weight:700">ฟรี ครบ ฿1,500</div>
+            </div>
+            <div class="pd-ship-card">
+              <div style="font-size:22px">⚡</div>
+              <div><b>Flash Express</b><div style="font-size:11px;color:var(--text-muted)">2-3 วันทำการ</div></div>
+              <div class="mono">฿55</div>
+            </div>
+            <div class="pd-ship-card">
+              <div style="font-size:22px">🏭</div>
+              <div><b>รับเองที่คลัง</b><div style="font-size:11px;color:var(--text-muted)">กำแพงแสน นครปฐม</div></div>
+              <div class="mono" style="color:var(--success);font-weight:700">ฟรี</div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:10px;padding:10px 12px;background:var(--surface-warm);border-radius:6px">
+            💡 <b>เคล็ดลับ:</b> สั่งครบ ฿1,500 ได้ส่งฟรี Kerry Express · สั่งเป็น lot 5,000+ แพ็ค ติดต่อผ่าน LINE เพื่อขอราคาโรงงานพิเศษ
+          </div>
+        </section>
+
+        <!-- Payment info -->
+        <section class="pd-section">
+          <h3 class="pd-h3">💳 วิธีชำระเงิน</h3>
+          <div class="pd-pay-grid">
+            <div class="pd-pay-item"><span>📱</span> QR PromptPay</div>
+            <div class="pd-pay-item"><span>🏦</span> โอนธนาคาร (KBank, SCB, BBL)</div>
+            <div class="pd-pay-item"><span>📦</span> เก็บเงินปลายทาง (COD)</div>
+            <div class="pd-pay-item"><span>💳</span> บัตรเครดิต/เดบิต</div>
+          </div>
+        </section>
+
+        <!-- Related products -->
+        ${(() => {
+          const related = PRODUCTS.filter(x => x.cat === p.cat && x.id !== p.id).slice(0, 5);
+          if (!related.length) return '';
+          return `
+          <section class="pd-section">
+            <h3 class="pd-h3">🔗 สินค้าที่ใกล้เคียง</h3>
+            <div class="grid" style="grid-template-columns:repeat(5,1fr)">
+              ${related.map(r => productCard(r)).join("")}
+            </div>
+          </section>`;
+        })()}
       </div>
     `;
   }
