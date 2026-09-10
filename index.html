@@ -797,6 +797,22 @@
     @page { size: A4; margin: 0; }
   }
 
+  /* ---- Search dropdown (bill builder) ---- */
+  .search-dropdown {
+    position: absolute; top: 100%; left: 0; right: 0;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; margin-top: 4px;
+    max-height: 340px; overflow-y: auto;
+    z-index: 20; box-shadow: 0 8px 20px rgba(0,0,0,.12);
+  }
+  .search-result {
+    padding: 10px 12px; cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background .1s;
+  }
+  .search-result:last-child { border-bottom: 0; }
+  .search-result:hover { background: var(--brand-soft); }
+
   /* ---- Admin panel ---- */
   .admin-header {
     background: linear-gradient(135deg, var(--brand-soft), var(--surface));
@@ -1005,7 +1021,19 @@
     // Auth
     user: safeGet("iamplastic.user", null), // { role: 'admin'|'customer', name, email, phone, ... }
     registeredUsers: safeGet("iamplastic.registeredUsers", []),
-    regIsCorporate: false, // ตัวจำ toggle นิติบุคคลในหน้า register
+    regIsCorporate: false,
+    // Bill builder state
+    bill: {
+      items: [], // [{ pid, qty, priceMode: 'retail'|'wholesale', priceOverride?: number }]
+      customer: { name: '', phone: '', email: '', address: '', taxId: '', company: '', isCorporate: false },
+      discount: 0,
+      shipping: 0,
+      shippingMethod: 'kerry',
+      payment: 'cash',
+      note: '',
+      productSearch: '',
+      customerSearch: '',
+    },
     currentCat: "all",
     searchQ: "",
     adminSearchQ: "",
@@ -1016,6 +1044,7 @@
     coShipping: "kerry",
     coPayment: "qr",
     coTaxOn: true,
+    coAddressId: null, // ที่อยู่ที่เลือกในหน้า checkout
   };
   function safeGet(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
   function safeSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
@@ -1128,10 +1157,13 @@
 
   async function pushOrderToSheet(order) {
     try {
-      await apiCall("createOrder", { data: order }, true);
+      const res = await apiCall("createOrder", { data: order }, true);
+      if (!res || res.ok === false) throw new Error((res && res.error) || "API error");
+      console.log("[order sync] ✓ pushed to Sheet:", order.po);
       return true;
     } catch (e) {
-      console.error("pushOrderToSheet:", e);
+      console.error("[order sync] ✗ pushOrderToSheet failed:", e);
+      // Silent — but log to console so admin can debug
       return false;
     }
   }
@@ -1281,11 +1313,15 @@
     else if (r.startsWith("/order/")) content = viewOrderDetail(r.split("/")[2], false);
     else if (r === "/login") content = viewLogin();
     else if (r === "/register") content = viewRegister();
+    else if (r === "/account/addresses") content = viewAddresses();
+    else if (r === "/account/address/new") content = viewAddressForm(null);
+    else if (r.startsWith("/account/address/")) content = viewAddressForm(r.split("/")[3]);
     else if (r === "/admin") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminDashboard(); }
     else if (r === "/admin/products") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminProducts(); }
     else if (r.startsWith("/admin/edit/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminEdit(r.split("/")[3]); }
     else if (r === "/admin/new") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminEdit(null); }
     else if (r === "/admin/orders") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminOrders(); }
+    else if (r === "/admin/create-bill") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminCreateBill(); }
     else if (r.startsWith("/admin/order/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminOrderDetail(r.split("/")[3]); }
     else if (r.startsWith("/admin/bill/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminBill(r.split("/")[3]); }
     else content = viewHome();
@@ -1315,10 +1351,12 @@
               <a class="ud-item" onclick="hideDropdown();go('/admin')">📊 Dashboard</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/products')">📦 จัดการสินค้า</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/orders')">📋 จัดการคำสั่งซื้อ</a>
+              <a class="ud-item" onclick="hideDropdown();go('/admin/create-bill')">🧾 เปิดบิลใหม่ (Manual)</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/new')">➕ เพิ่มสินค้าใหม่</a>
               <div class="ud-divider"></div>
             ` : ''}
             <a class="ud-item" onclick="hideDropdown();go('/orders')">📋 คำสั่งซื้อของฉัน</a>
+            <a class="ud-item" onclick="hideDropdown();go('/account/addresses')">📍 ที่อยู่ของฉัน</a>
             <a class="ud-item" onclick="hideDropdown();go('/cart')">🛒 ตะกร้าสินค้า</a>
             <div class="ud-divider"></div>
             <a class="ud-item" onclick="doLogout()">🔓 ออกจากระบบ</a>
@@ -1356,6 +1394,7 @@
         <a onclick="go('/admin')">Dashboard</a>
         <a onclick="go('/admin/products')">สินค้า (${EP.length})</a>
         <a onclick="go('/admin/orders')">คำสั่งซื้อ (${(S.sheetOrders||S.orders||[]).length})</a>
+        <a onclick="go('/admin/create-bill')" style="background:rgba(0,0,0,.12);padding:3px 8px;border-radius:4px">🧾 เปิดบิลใหม่</a>
         <a onclick="go('/admin/new')">➕ เพิ่มสินค้า</a>
         <span style="margin-left:auto;opacity:.75;font-size:11px">${S.user.name || 'Admin'}</span>
       </div>
@@ -1762,18 +1801,46 @@
       </div>
       <div class="checkout">
         <div>
-          <div class="co-card">
-            <h3>📍 ที่อยู่จัดส่ง${S.user ? ` <span style="font-size:11px;font-weight:400;color:var(--wholesale);background:var(--wholesale-soft);padding:3px 8px;border-radius:4px;margin-left:8px">✓ auto-fill จากบัญชีสมาชิก</span>` : ''}</h3>
-            <div class="form-grid">
-              <div class="form-field"><label>ชื่อ-นามสกุล</label><input id="co-name" value="${(S.user?.name||'สุรพงษ์ ร่มเย็น').replace(/"/g,'&quot;')}"></div>
-              <div class="form-field"><label>เบอร์โทร</label><input id="co-phone" value="${S.user?.phone||'082-345-6789'}"></div>
-              <div class="form-field wide"><label>ที่อยู่</label><input id="co-addr" value="${(S.user?.addr||S.user?.address||'123/45 หมู่ 5').replace(/"/g,'&quot;')}"></div>
-              <div class="form-field"><label>ตำบล/แขวง</label><input id="co-subdist" value="${S.user?.subdist||'กำแพงแสน'}"></div>
-              <div class="form-field"><label>อำเภอ/เขต</label><input id="co-dist" value="${S.user?.dist||'กำแพงแสน'}"></div>
-              <div class="form-field"><label>จังหวัด</label><input id="co-prov" value="${S.user?.prov||'นครปฐม'}"></div>
-              <div class="form-field"><label>รหัสไปรษณีย์</label><input id="co-zip" value="${S.user?.zip||'73140'}" class="mono"></div>
-            </div>
-          </div>
+          ${(() => {
+            const addresses = isLoggedIn() ? getUserAddresses() : [];
+            const currentAddr = S.coAddressId ? addresses.find(a=>a.id===S.coAddressId) : addresses.find(a=>a.isDefault) || addresses[0];
+            if (currentAddr && !S.coAddressId) S.coAddressId = currentAddr.id;
+            return `
+              <div class="co-card">
+                <h3>📍 ที่อยู่จัดส่ง${isLoggedIn() ? ` <a onclick="go('/account/address/new')" style="font-size:11px;font-weight:600;color:var(--brand);cursor:pointer;margin-left:10px">+ เพิ่มที่อยู่ใหม่</a>` : ''}</h3>
+                ${isLoggedIn() && addresses.length > 0 ? `
+                  <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+                    ${addresses.map(a => `
+                      <div onclick="S.coAddressId='${a.id}';render()" style="border:2px solid ${S.coAddressId===a.id?'var(--brand)':'var(--border)'};background:${S.coAddressId===a.id?'var(--brand-soft)':'var(--surface)'};border-radius:8px;padding:12px 14px;cursor:pointer;display:flex;gap:12px;align-items:flex-start;transition:all .15s">
+                        <div style="width:18px;height:18px;border-radius:99px;border:2px solid ${S.coAddressId===a.id?'var(--brand)':'var(--border)'};background:${S.coAddressId===a.id?'var(--brand)':'#fff'};flex-shrink:0;margin-top:2px;position:relative">${S.coAddressId===a.id?'<div style="position:absolute;top:2px;left:2px;right:2px;bottom:2px;background:#fff;border-radius:99px"></div>':''}</div>
+                        <div style="flex:1">
+                          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+                            <span style="font-weight:700;font-size:13px">${a.label}</span>
+                            ${a.isDefault?'<span style="font-size:9px;background:var(--brand);color:#fff;padding:1px 6px;border-radius:99px;font-weight:700">Default</span>':''}
+                          </div>
+                          <div style="font-size:12px;line-height:1.5"><b>${a.name}</b> · ${a.phone}<br>${a.fullAddress}</div>
+                        </div>
+                        <a onclick="event.stopPropagation();go('/account/address/${a.id}')" style="color:var(--brand);cursor:pointer;font-size:11px;flex-shrink:0">✏️ แก้ไข</a>
+                      </div>
+                    `).join('')}
+                  </div>
+                  ${addresses.length > 1 ? '<div style="font-size:11px;color:var(--wholesale);background:var(--wholesale-soft);padding:8px 12px;border-radius:6px;margin-bottom:10px">💡 คลิกที่อยู่ใดๆ เพื่อเปลี่ยนที่ส่ง</div>' : ''}
+                ` : ''}
+                ${!isLoggedIn() || addresses.length === 0 ? `
+                  <div class="form-grid">
+                    <div class="form-field"><label>ชื่อ-นามสกุล *</label><input id="co-name" value="${(S.user?.name||'').replace(/"/g,'&quot;')}"></div>
+                    <div class="form-field"><label>เบอร์โทร *</label><input id="co-phone" value="${S.user?.phone||''}"></div>
+                    <div class="form-field wide"><label>ที่อยู่ *</label><input id="co-addr" value="${(S.user?.addr||'').replace(/"/g,'&quot;')}"></div>
+                    <div class="form-field"><label>ตำบล/แขวง</label><input id="co-subdist" value="${S.user?.subdist||''}"></div>
+                    <div class="form-field"><label>อำเภอ/เขต</label><input id="co-dist" value="${S.user?.dist||''}"></div>
+                    <div class="form-field"><label>จังหวัด *</label><input id="co-prov" value="${S.user?.prov||''}"></div>
+                    <div class="form-field"><label>รหัสไปรษณีย์ *</label><input id="co-zip" value="${S.user?.zip||''}" class="mono"></div>
+                  </div>
+                  ${!isLoggedIn() ? '<div style="margin-top:10px;font-size:12px;color:var(--brand);text-align:center"><a onclick="go(\'/login\')" style="color:var(--brand);cursor:pointer;font-weight:700">🔑 เข้าสู่ระบบ</a> เพื่อใช้ที่อยู่ที่บันทึกไว้ หรือ <a onclick="go(\'/register\')" style="color:var(--brand);cursor:pointer;font-weight:700">สมัครสมาชิก</a></div>' : ''}
+                ` : ''}
+              </div>
+            `;
+          })()}
 
           <div class="co-card">
             <h3>📄 ใบกำกับภาษี
@@ -1882,6 +1949,26 @@
     const disc = couponDiscount();
     const ship = shippingFee();
     const tot = sub - disc + ship;
+    // Get selected address
+    let customer;
+    if (isLoggedIn()) {
+      const addresses = getUserAddresses();
+      const selected = S.coAddressId ? addresses.find(a => a.id === S.coAddressId) : addresses.find(a => a.isDefault) || addresses[0];
+      if (selected) {
+        customer = { name: selected.name, phone: selected.phone, address: selected.fullAddress, email: S.user.email };
+      } else {
+        customer = { name: S.user.name, phone: S.user.phone, address: S.user.address || '', email: S.user.email };
+      }
+      if (S.user.isCorporate) {
+        customer.company = S.user.company;
+        customer.taxId = S.user.taxId;
+      }
+    } else {
+      // Guest — get from checkout form inputs
+      const g = id => (document.getElementById(id)||{}).value.trim();
+      const fullAddr = `${g('co-addr')} ต.${g('co-subdist')} อ.${g('co-dist')} จ.${g('co-prov')} ${g('co-zip')}`.replace(/\s+/g, ' ').trim();
+      customer = { name: g('co-name') || 'ลูกค้า', phone: g('co-phone'), address: fullAddr };
+    }
     const order = {
       po: poNo,
       status: S.coPayment === "cod" ? "paid" : "pending_payment",
@@ -1898,13 +1985,23 @@
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       mode: S.mode,
-      customer: { name: "สุรพงษ์ ร่มเย็น", phone: "082-345-6789", address: "123/45 หมู่ 5 ต.กำแพงแสน อ.กำแพงแสน จ.นครปฐม 73140" },
+      customer,
     };
     S.orders.unshift(order);
+    // Also add to sheetOrders local cache so it shows in customer's orders page immediately
+    if (!S.sheetOrders) S.sheetOrders = [];
+    S.sheetOrders.unshift(order);
     saveState();
     clearCart();
-    // Fire-and-forget push to Sheet (don't block UX)
-    if (S.sheetApiUrl && S.autoSync) pushOrderToSheet(order);
+    // Push to Sheet (fire-and-forget — but log)
+    if (S.sheetApiUrl && S.autoSync) {
+      pushOrderToSheet(order).then(ok => {
+        if (ok) toast(`✓ บันทึกออเดอร์ลง Google Sheet เรียบร้อย`);
+        else toast(`⚠️ ยังไม่ได้ push ลง Sheet — เช็ค Admin Settings`);
+      });
+    } else if (!S.sheetApiUrl) {
+      console.warn("[order] Sheet ไม่ได้เชื่อม — order เก็บใน localStorage อย่างเดียว");
+    }
     go('/success/' + poNo);
   }
 
@@ -1934,8 +2031,8 @@
               <input id="login-phone" placeholder="0812345678 หรือ you@example.com" autofocus>
             </div>
             <div class="form-field wide" style="margin-bottom:16px">
-              <label>ชื่อ (สำหรับสร้าง session)</label>
-              <input id="login-name" placeholder="ชื่อ นามสกุล" onkeydown="if(event.key==='Enter')loginAsCustomer()">
+              <label>รหัสผ่าน</label>
+              <input id="login-pw" type="password" placeholder="รหัสผ่าน" onkeydown="if(event.key==='Enter')loginAsCustomer()">
             </div>
             <button class="btn btn-primary btn-block btn-big" onclick="loginAsCustomer()">👤 เข้าสู่ระบบ</button>
             <div style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:14px">
@@ -1961,25 +2058,188 @@
   }
   function loginAsCustomer() {
     const contact = document.getElementById("login-phone").value.trim();
-    const nameInput = document.getElementById("login-name").value.trim();
+    const pw = (document.getElementById("login-pw")||{value:''}).value;
     if (!contact) { toast("กรุณาใส่เบอร์หรืออีเมล"); return; }
-    // Look up in registered users
+    if (!pw) { toast("กรุณาใส่รหัสผ่าน"); return; }
     const existing = S.registeredUsers.find(u =>
       u.phone === contact || u.email === contact || u.companyPhone === contact
     );
-    if (existing) {
-      S.user = { role: 'customer', ...existing };
-      saveState();
-      toast(`ยินดีต้อนรับกลับ คุณ${existing.firstName || existing.name} 👋`);
-      go('/');
-    } else {
-      // No registered user found — quick login (guest mode)
-      if (!nameInput) { toast("ยังไม่มีบัญชี — กรอกชื่อเพื่อสร้าง session หรือกดสมัครสมาชิก"); return; }
-      S.user = { role: 'customer', name: nameInput, phone: contact.match(/^0\d{8,9}$/) ? contact : '', email: contact.includes('@') ? contact : '' };
-      saveState();
-      toast(`เข้าสู่ระบบชั่วคราวสำเร็จ (แนะนำสมัครสมาชิกเพื่อบันทึกข้อมูล)`);
-      go('/');
+    if (!existing) {
+      toast("ไม่พบบัญชีนี้ — กรุณาสมัครสมาชิกก่อน");
+      return;
     }
+    if (existing.password !== btoa(pw)) {
+      toast("รหัสผ่านไม่ถูกต้อง");
+      return;
+    }
+    S.user = { role: 'customer', ...existing };
+    saveState();
+    toast(`ยินดีต้อนรับกลับ คุณ${existing.firstName || existing.name} 👋`);
+    go('/');
+  }
+
+  // =======================================================
+  // Address Management
+  // =======================================================
+  function getUserAddresses() {
+    if (!S.user) return [];
+    // ถ้ามีใน registeredUsers ให้ sync จากนั้น
+    const registered = S.registeredUsers.find(u => u.phone === S.user.phone || u.email === S.user.email);
+    if (registered && registered.addresses) return registered.addresses;
+    // Fallback: สร้าง default จาก user data
+    if (S.user.address) {
+      return [{
+        id: 'DEFAULT',
+        label: 'บ้าน',
+        name: S.user.name,
+        phone: S.user.phone,
+        addr: S.user.addr || '',
+        subdist: S.user.subdist || '',
+        dist: S.user.dist || '',
+        prov: S.user.prov || '',
+        zip: S.user.zip || '',
+        fullAddress: S.user.address,
+        isDefault: true,
+      }];
+    }
+    return [];
+  }
+
+  function viewAddresses() {
+    if (!isLoggedIn()) { setTimeout(()=>go('/login'),10); return ''; }
+    const addresses = getUserAddresses();
+    return `
+      <div class="section-head">
+        <h2>📍 ที่อยู่ของฉัน <span style="color:var(--text-muted);font-size:14px;font-weight:400">(${addresses.length} ที่อยู่)</span></h2>
+        <button class="btn btn-primary" onclick="go('/account/address/new')">➕ เพิ่มที่อยู่</button>
+      </div>
+      ${addresses.length === 0 ? `
+        <div class="cart-empty">
+          <div class="icon">📍</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px">ยังไม่มีที่อยู่</div>
+          <div style="font-size:13px;margin-bottom:16px">เพิ่มที่อยู่แรกเพื่อสั่งซื้อได้เร็วขึ้น</div>
+          <button class="btn btn-primary" onclick="go('/account/address/new')">➕ เพิ่มที่อยู่</button>
+        </div>
+      ` : `
+        <div style="display:flex;flex-direction:column;gap:12px">
+          ${addresses.map(a => `
+            <div class="co-card" style="margin:0;border:${a.isDefault ? '2px solid var(--brand)' : '1px solid var(--border)'};background:${a.isDefault?'var(--brand-soft)':'var(--surface)'}">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+                <div style="flex:1;min-width:200px">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <span style="font-weight:700;font-size:15px">${a.label || 'ที่อยู่'}</span>
+                    ${a.isDefault?'<span style="font-size:10px;background:var(--brand);color:#fff;padding:2px 8px;border-radius:99px;font-weight:700">Default</span>':''}
+                  </div>
+                  <div style="font-size:13px;line-height:1.6">
+                    <b>${a.name}</b> · ${a.phone}<br>
+                    ${a.fullAddress}
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  ${!a.isDefault?`<button class="btn btn-ghost" onclick="setDefaultAddress('${a.id}')" style="font-size:11px">⭐ ตั้งเป็น default</button>`:''}
+                  <button class="btn btn-outline" onclick="go('/account/address/${a.id}')">✏️ แก้ไข</button>
+                  ${!a.isDefault?`<button class="btn btn-ghost" onclick="deleteAddress('${a.id}')" style="color:#DC2626">🗑️ ลบ</button>`:''}
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `}
+    `;
+  }
+
+  function viewAddressForm(addrId) {
+    if (!isLoggedIn()) { setTimeout(()=>go('/login'),10); return ''; }
+    const isNew = !addrId;
+    const addresses = getUserAddresses();
+    const a = isNew ? { label:'', name: S.user.name, phone: S.user.phone||'', addr:'', subdist:'', dist:'', prov:'', zip:'' } : addresses.find(x => x.id === addrId);
+    if (!isNew && !a) return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบที่อยู่</div></div>`;
+    return `
+      <div class="section-head">
+        <h2>${isNew?'➕ เพิ่มที่อยู่ใหม่':'✏️ แก้ไขที่อยู่'}</h2>
+        <button class="btn btn-ghost" onclick="go('/account/addresses')">← กลับ</button>
+      </div>
+      <div class="co-card" style="margin:0">
+        <div class="form-grid">
+          <div class="form-field wide"><label>ชื่อที่อยู่ (Label) *</label><input id="ad-label" value="${(a.label||'').replace(/"/g,'&quot;')}" placeholder="เช่น บ้าน · ที่ทำงาน · โกดัง"></div>
+          <div class="form-field"><label>ชื่อผู้รับ *</label><input id="ad-name" value="${(a.name||'').replace(/"/g,'&quot;')}"></div>
+          <div class="form-field"><label>เบอร์โทร *</label><input id="ad-phone" value="${a.phone||''}"></div>
+          <div class="form-field wide"><label>ที่อยู่ *</label><input id="ad-addr" value="${(a.addr||'').replace(/"/g,'&quot;')}" placeholder="เลขที่ / หมู่ / ซอย"></div>
+          <div class="form-field"><label>ตำบล/แขวง</label><input id="ad-subdist" value="${a.subdist||''}"></div>
+          <div class="form-field"><label>อำเภอ/เขต</label><input id="ad-dist" value="${a.dist||''}"></div>
+          <div class="form-field"><label>จังหวัด *</label><input id="ad-prov" value="${a.prov||''}"></div>
+          <div class="form-field"><label>รหัสไปรษณีย์ *</label><input id="ad-zip" value="${a.zip||''}" class="mono"></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+          <button class="btn btn-ghost" onclick="go('/account/addresses')">ยกเลิก</button>
+          <button class="btn btn-primary btn-big" onclick="saveAddress('${addrId||''}')">💾 ${isNew?'เพิ่มที่อยู่':'บันทึกการแก้ไข'}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function saveAddress(existingId) {
+    const g = id => (document.getElementById(id)||{}).value.trim();
+    const label = g('ad-label');
+    const name = g('ad-name');
+    const phone = g('ad-phone');
+    const addr = g('ad-addr');
+    const prov = g('ad-prov');
+    const zip = g('ad-zip');
+    if (!label || !name || !phone || !addr || !prov || !zip) { toast("กรุณากรอกช่องที่มี * ให้ครบ"); return; }
+    const subdist = g('ad-subdist');
+    const dist = g('ad-dist');
+    const fullAddress = `${addr} ต.${subdist||''} อ.${dist||''} จ.${prov} ${zip}`.replace(/\s+/g, ' ').trim();
+    const address = {
+      id: existingId || ('ADDR-' + Date.now()),
+      label, name, phone, addr, subdist, dist, prov, zip, fullAddress,
+      isDefault: false,
+    };
+    // Find registered user
+    const rIdx = S.registeredUsers.findIndex(u => u.phone === S.user.phone || u.email === S.user.email);
+    let list;
+    if (rIdx >= 0) {
+      if (!S.registeredUsers[rIdx].addresses) S.registeredUsers[rIdx].addresses = [];
+      list = S.registeredUsers[rIdx].addresses;
+    } else {
+      // Guest — save on S.user
+      if (!S.user.addresses) S.user.addresses = [];
+      list = S.user.addresses;
+    }
+    const idx = list.findIndex(a => a.id === existingId);
+    if (idx >= 0) {
+      // Preserve isDefault
+      address.isDefault = list[idx].isDefault;
+      list[idx] = address;
+    } else {
+      // First address = default
+      if (list.length === 0) address.isDefault = true;
+      list.push(address);
+    }
+    saveState();
+    toast(existingId ? "บันทึกที่อยู่แล้ว ✓" : "เพิ่มที่อยู่แล้ว ✓");
+    go('/account/addresses');
+  }
+
+  function setDefaultAddress(id) {
+    const rIdx = S.registeredUsers.findIndex(u => u.phone === S.user.phone || u.email === S.user.email);
+    const list = rIdx >= 0 ? S.registeredUsers[rIdx].addresses : (S.user.addresses || []);
+    list.forEach(a => a.isDefault = (a.id === id));
+    saveState();
+    toast("ตั้งเป็น default แล้ว ✓");
+    render();
+  }
+  function deleteAddress(id) {
+    if (!confirm("ลบที่อยู่นี้?")) return;
+    const rIdx = S.registeredUsers.findIndex(u => u.phone === S.user.phone || u.email === S.user.email);
+    if (rIdx >= 0) {
+      S.registeredUsers[rIdx].addresses = S.registeredUsers[rIdx].addresses.filter(a => a.id !== id);
+    } else if (S.user.addresses) {
+      S.user.addresses = S.user.addresses.filter(a => a.id !== id);
+    }
+    saveState();
+    toast("ลบแล้ว ✓");
+    render();
   }
 
   function viewRegister() {
@@ -1994,18 +2254,27 @@
           </div>
 
           <div class="admin-form-section" style="padding:20px;background:var(--surface-warm);border:1px solid var(--border);border-radius:10px;margin-bottom:16px">
-            <h3 style="margin:0 0 14px;font-size:14px;padding-bottom:8px;border-bottom:1px solid var(--border)">👤 ข้อมูลส่วนตัว</h3>
+            <h3 style="margin:0 0 14px;font-size:14px;padding-bottom:8px;border-bottom:1px solid var(--border)">👤 ข้อมูลบัญชี</h3>
             <div class="form-grid">
               <div class="form-field"><label>ชื่อ *</label><input id="reg-firstname" placeholder="สุรพงษ์" autofocus></div>
               <div class="form-field"><label>นามสกุล *</label><input id="reg-lastname" placeholder="ร่มเย็น"></div>
-              <div class="form-field"><label>เบอร์โทร *</label><input id="reg-phone" type="tel" placeholder="082-345-6789"></div>
+              <div class="form-field"><label>เบอร์โทร (username) *</label><input id="reg-phone" type="tel" placeholder="0812345678"></div>
               <div class="form-field"><label>อีเมล *</label><input id="reg-email" type="email" placeholder="you@example.com"></div>
+              <div class="form-field"><label>รหัสผ่าน * <span style="font-weight:400;color:var(--text-muted);font-size:10px">(อย่างน้อย 6 ตัว)</span></label><input id="reg-pw" type="password" placeholder="••••••••"></div>
+              <div class="form-field"><label>ยืนยันรหัสผ่าน *</label><input id="reg-pw2" type="password" placeholder="••••••••"></div>
+            </div>
+          </div>
+
+          <div class="admin-form-section" style="padding:20px;background:var(--surface-warm);border:1px solid var(--border);border-radius:10px;margin-bottom:16px">
+            <h3 style="margin:0 0 14px;font-size:14px;padding-bottom:8px;border-bottom:1px solid var(--border)">📍 ที่อยู่จัดส่ง (Default)</h3>
+            <div class="form-grid">
               <div class="form-field wide"><label>ที่อยู่ *</label><input id="reg-addr" placeholder="123/45 หมู่ 5"></div>
               <div class="form-field"><label>ตำบล/แขวง</label><input id="reg-subdist" placeholder="กำแพงแสน"></div>
               <div class="form-field"><label>อำเภอ/เขต</label><input id="reg-dist" placeholder="กำแพงแสน"></div>
               <div class="form-field"><label>จังหวัด *</label><input id="reg-prov" placeholder="นครปฐม"></div>
               <div class="form-field"><label>รหัสไปรษณีย์ *</label><input id="reg-zip" class="mono" placeholder="73140"></div>
             </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:10px">💡 หลังสมัคร สามารถเพิ่ม/แก้ที่อยู่ได้ในหน้า "ที่อยู่ของฉัน" (มีหลายที่อยู่ได้)</div>
           </div>
 
           <div class="admin-form-section" style="padding:20px;background:${c?'var(--wholesale-soft)':'var(--surface-warm)'};border:2px solid ${c?'var(--wholesale)':'var(--border)'};border-radius:10px;margin-bottom:20px;transition:all .15s">
@@ -2046,6 +2315,8 @@
     const lastName = g('reg-lastname').trim();
     const phone = g('reg-phone').trim();
     const email = g('reg-email').trim();
+    const password = g('reg-pw');
+    const password2 = g('reg-pw2');
     const addr = g('reg-addr').trim();
     const prov = g('reg-prov').trim();
     const zip = g('reg-zip').trim();
@@ -2053,6 +2324,8 @@
     if (!firstName || !lastName) { toast("กรุณากรอกชื่อ-นามสกุล"); return; }
     if (!phone) { toast("กรุณากรอกเบอร์โทร"); return; }
     if (!email || !email.includes('@')) { toast("กรุณากรอกอีเมลให้ถูกต้อง"); return; }
+    if (!password || password.length < 6) { toast("รหัสผ่านต้องอย่างน้อย 6 ตัว"); return; }
+    if (password !== password2) { toast("รหัสผ่านไม่ตรงกัน"); return; }
     if (!addr || !prov || !zip) { toast("กรุณากรอกที่อยู่ให้ครบ"); return; }
 
     // Check duplicate
@@ -2062,12 +2335,22 @@
     }
 
     const fullAddress = `${addr} ต.${g('reg-subdist').trim()||''} อ.${g('reg-dist').trim()||''} จ.${prov} ${zip}`.replace(/\s+/g, ' ').trim();
+    const defaultAddress = {
+      id: 'ADDR-' + Date.now(),
+      label: 'บ้าน',
+      name: `${firstName} ${lastName}`, phone,
+      addr, subdist: g('reg-subdist').trim(), dist: g('reg-dist').trim(), prov, zip,
+      fullAddress,
+      isDefault: true,
+    };
 
     const userData = {
       name: `${firstName} ${lastName}`,
       firstName, lastName, phone, email,
+      password: btoa(password), // Simple encoding (demo — production ควรใช้ hash จริง)
       address: fullAddress,
       addr, subdist: g('reg-subdist').trim(), dist: g('reg-dist').trim(), prov, zip,
+      addresses: [defaultAddress],
       isCorporate: S.regIsCorporate,
       registeredAt: new Date().toISOString(),
     };
@@ -2154,10 +2437,30 @@
   function clearSheetCache() {
     if (!confirm("ล้าง cache สินค้าจาก Sheet? (จะกลับไปใช้ข้อมูล hardcoded)")) return;
     S.sheetProducts = null;
+    S.sheetOrders = null;
     S.sheetLastSync = 0;
     saveState();
     toast("ล้าง cache แล้ว");
     render();
+  }
+
+  async function testPushOrder() {
+    toast("⏳ กำลังทดสอบ push order ทดสอบ...");
+    const testOrder = {
+      po: "TEST-" + Date.now(),
+      status: "pending_payment",
+      total: 100, subtotal: 100, discount: 0, shipping: 0,
+      items: [{ pid: "TEST", qty: 1, priceEach: 100 }],
+      shippingMethod: "kerry", payment: "cash", taxInvoice: false,
+      customer: { name: "TEST CUSTOMER", phone: "0812345678", address: "ทดสอบ" },
+      createdAt: new Date().toISOString(),
+    };
+    const ok = await pushOrderToSheet(testOrder);
+    if (ok) {
+      toast(`✅ Push สำเร็จ · เช็ค Sheet tab "orders" → เห็น ${testOrder.po}`);
+    } else {
+      toast(`❌ Push ล้มเหลว — เช็ค console (F12) หรือ redeploy Apps Script`);
+    }
   }
 
   // Auto-load products from Sheet on page load
@@ -2183,7 +2486,15 @@
   }
 
   function viewAdminDashboard() {
-    const orders = S.sheetOrders || S.orders || [];
+    // Auto-pull orders from Sheet ทุกครั้งที่เข้า admin dashboard (ล่าสุด)
+    if (S.sheetApiUrl) {
+      pullOrdersFromSheet().then(() => render()).catch(()=>{});
+    }
+    // Combine local orders + sheet orders (dedupe by po)
+    const byPo = new Map();
+    (S.sheetOrders || []).forEach(o => byPo.set(o.po, o));
+    (S.orders || []).forEach(o => { if (!byPo.has(o.po)) byPo.set(o.po, o); });
+    const orders = Array.from(byPo.values()).sort((a,b) => new Date(b.createdAt||0) - new Date(a.createdAt||0));
     const totalRevenue = orders.filter(o => o.status !== 'cancelled' && o.status !== 'pending_payment').reduce((s, o) => s + (o.total || 0), 0);
     const pendingOrders = orders.filter(o => o.status === 'pending_payment').length;
     const preparingOrders = orders.filter(o => o.status === 'paid' || o.status === 'preparing').length;
@@ -2196,9 +2507,10 @@
         <div class="admin-stat"><div class="s-label">รอชำระเงิน</div><div class="s-val" style="color:var(--brand)">${pendingOrders}</div></div>
         <div class="admin-stat"><div class="s-label">กำลังจัดส่ง</div><div class="s-val" style="color:#7C3AED">${shippingOrders}</div></div>
       </div>
-      <div class="admin-stats" style="grid-template-columns:repeat(3,1fr)">
+      <div class="admin-stats" style="grid-template-columns:repeat(4,1fr)">
         <div class="admin-stat" style="cursor:pointer" onclick="go('/admin/products')"><div style="font-size:36px">📦</div><div style="margin-top:8px;font-weight:700">จัดการสินค้า</div><div style="font-size:12px;color:var(--text-muted)">${EP.length} รายการ</div></div>
         <div class="admin-stat" style="cursor:pointer" onclick="go('/admin/orders')"><div style="font-size:36px">📋</div><div style="margin-top:8px;font-weight:700">จัดการคำสั่งซื้อ</div><div style="font-size:12px;color:var(--text-muted)">${orders.length} คำสั่ง</div></div>
+        <div class="admin-stat" style="cursor:pointer;border:2px solid var(--brand);background:var(--brand-soft)" onclick="go('/admin/create-bill')"><div style="font-size:36px">🧾</div><div style="margin-top:8px;font-weight:700">เปิดบิลใหม่</div><div style="font-size:12px;color:var(--brand-dark)">Walk-in / โทรสั่ง</div></div>
         <div class="admin-stat" style="cursor:pointer" onclick="go('/admin/new')"><div style="font-size:36px">➕</div><div style="margin-top:8px;font-weight:700">เพิ่มสินค้าใหม่</div><div style="font-size:12px;color:var(--text-muted)">สร้าง SKU ใหม่</div></div>
       </div>
       ${orders.length ? `
@@ -2249,7 +2561,15 @@
   }
 
   function viewAdminOrders() {
-    const orders = S.sheetOrders || S.orders || [];
+    // Auto-pull ล่าสุด
+    if (S.sheetApiUrl && (Date.now() - (S.sheetLastSync||0)) > 10000) {
+      pullOrdersFromSheet().then(() => render()).catch(()=>{});
+    }
+    // Combine local + sheet (dedupe)
+    const byPo = new Map();
+    (S.sheetOrders || []).forEach(o => byPo.set(o.po, o));
+    (S.orders || []).forEach(o => { if (!byPo.has(o.po)) byPo.set(o.po, o); });
+    const orders = Array.from(byPo.values()).sort((a,b) => new Date(b.createdAt||0) - new Date(a.createdAt||0));
     return `
       ${adminPageHeader('จัดการคำสั่งซื้อ', '📋', '<button class="btn btn-outline" onclick="pullOrdersFromSheet().then(()=>render())">🔄 Refresh</button>')}
       ${orders.length === 0 ? `<div class="cart-empty"><div class="icon">📋</div><div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px">ยังไม่มีคำสั่งซื้อ</div><div style="font-size:13px">พอมีลูกค้าสั่งซื้อ จะโผล่ที่นี่ทันที</div></div>` : `
@@ -2403,6 +2723,315 @@
     go('/admin/orders');
   }
 
+  // =======================================================
+  // Create Bill (manual) — admin เปิดบิลเอง สำหรับ walk-in/phone order
+  // =======================================================
+  function viewAdminCreateBill() {
+    const b = S.bill;
+    // Search products
+    let searchResults = [];
+    if (b.productSearch && b.productSearch.length >= 1) {
+      const q = b.productSearch.toLowerCase();
+      searchResults = EP.filter(p =>
+        p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)
+      ).slice(0, 10);
+    }
+    // Search customers
+    let custResults = [];
+    if (b.customerSearch && b.customerSearch.length >= 1) {
+      const q = b.customerSearch.toLowerCase();
+      custResults = S.registeredUsers.filter(u =>
+        (u.name||'').toLowerCase().includes(q) ||
+        (u.phone||'').includes(q) ||
+        (u.email||'').toLowerCase().includes(q) ||
+        (u.company||'').toLowerCase().includes(q)
+      ).slice(0, 8);
+    }
+    // Calculate
+    const lineItems = b.items.map(it => {
+      const p = EP.find(x => x.id === it.pid);
+      if (!p) return null;
+      const priceEach = it.priceOverride !== undefined && it.priceOverride !== null
+        ? it.priceOverride
+        : (it.priceMode === 'wholesale' ? p.wholesale : p.retail);
+      return { p, qty: it.qty, priceEach, total: priceEach * it.qty };
+    }).filter(Boolean);
+    const subtotal = lineItems.reduce((s, li) => s + li.total, 0);
+    const discount = Number(b.discount) || 0;
+    const shipping = Number(b.shipping) || 0;
+    const grandTotal = Math.max(0, subtotal - discount + shipping);
+    // Weight total (for shipping suggestion)
+    const totalWeight = lineItems.reduce((s, li) => s + ((li.p.weight || 0.5) * li.qty), 0);
+    const suggestedShip = totalWeight <= 0 ? 0 : totalWeight <= 1 ? 50 : totalWeight <= 5 ? 90 : totalWeight <= 10 ? 140 : 200;
+
+    return `
+      ${adminPageHeader('🧾 เปิดบิลใหม่ (Manual)', '🧾', `
+        <button class="btn btn-outline" onclick="resetBillBuilder()">🔄 ล้างทั้งหมด</button>
+        <button class="btn btn-primary btn-big" onclick="finalizeBill()" ${lineItems.length===0||!b.customer.name?'disabled style="opacity:.5;cursor:not-allowed"':''}>💾 สร้างบิล + พิมพ์</button>
+      `)}
+
+      <div style="display:grid;grid-template-columns:1fr 380px;gap:20px">
+        <!-- LEFT: Items builder + customer -->
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <!-- CUSTOMER SECTION -->
+          <div class="co-card" style="margin:0">
+            <h3>👤 ข้อมูลลูกค้า${b.customer.isCorporate?' <span style="font-size:11px;font-weight:400;color:var(--wholesale);background:var(--wholesale-soft);padding:3px 8px;border-radius:4px">🏢 นิติบุคคล</span>':''}</h3>
+
+            <div style="position:relative;margin-bottom:12px">
+              <input placeholder="🔍 ค้นหาลูกค้าเก่า (ชื่อ/เบอร์/อีเมล/บริษัท) หรือกรอกใหม่ด้านล่าง" value="${b.customerSearch}" oninput="S.bill.customerSearch=this.value;render()" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface-warm);font-size:13px;color:var(--text);font-family:inherit">
+              ${custResults.length > 0 ? `
+                <div class="search-dropdown">
+                  ${custResults.map(u => `<div class="search-result" onclick="selectCustomer('${u.phone||u.email}')">
+                    <div style="font-weight:600;font-size:13px">${u.name}${u.isCorporate?' 🏢':''}</div>
+                    <div style="font-size:11px;color:var(--text-muted)">${u.phone||''} · ${u.email||''}${u.company?' · '+u.company:''}</div>
+                  </div>`).join('')}
+                </div>
+              ` : (b.customerSearch.length >= 1 && !custResults.length ? `<div class="search-dropdown"><div style="padding:10px;color:var(--text-muted);font-size:12px">ไม่พบลูกค้าในทะเบียน — กรอกข้อมูลใหม่ด้านล่าง</div></div>` : '')}
+            </div>
+
+            <div class="form-grid">
+              <div class="form-field"><label>ชื่อ-นามสกุล *</label><input value="${(b.customer.name||'').replace(/"/g,'&quot;')}" oninput="S.bill.customer.name=this.value" placeholder="ชื่อ ลูกค้า"></div>
+              <div class="form-field"><label>เบอร์โทร</label><input value="${b.customer.phone||''}" oninput="S.bill.customer.phone=this.value" placeholder="082-xxx-xxxx"></div>
+              <div class="form-field wide"><label>ที่อยู่</label><input value="${(b.customer.address||'').replace(/"/g,'&quot;')}" oninput="S.bill.customer.address=this.value" placeholder="ที่อยู่จัดส่ง / ที่อยู่ลูกค้า"></div>
+            </div>
+
+            <label style="display:flex;align-items:center;gap:10px;padding:12px 0 8px;border-top:1px solid var(--border);margin-top:12px;cursor:pointer">
+              <input type="checkbox" ${b.customer.isCorporate?'checked':''} onchange="S.bill.customer.isCorporate=this.checked;render()" style="width:18px;height:18px;accent-color:var(--wholesale)">
+              <span style="font-weight:600;font-size:13px">🏢 ออกใบกำกับภาษี (นิติบุคคล)</span>
+            </label>
+
+            ${b.customer.isCorporate ? `
+              <div class="form-grid" style="margin-top:8px">
+                <div class="form-field wide"><label>ชื่อบริษัท *</label><input value="${(b.customer.company||'').replace(/"/g,'&quot;')}" oninput="S.bill.customer.company=this.value" placeholder="บริษัท ... จำกัด"></div>
+                <div class="form-field"><label>เลขประจำตัวผู้เสียภาษี (13 หลัก) *</label><input class="mono" value="${b.customer.taxId||''}" oninput="S.bill.customer.taxId=this.value.replace(/[-\\s]/g,'')" placeholder="0-1055-58001-23-4" maxlength="20"></div>
+                <div class="form-field"><label>สาขา</label><input value="${b.customer.branch||'สำนักงานใหญ่'}" oninput="S.bill.customer.branch=this.value"></div>
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- ITEMS SECTION -->
+          <div class="co-card" style="margin:0">
+            <h3>📦 รายการสินค้า (${lineItems.length})</h3>
+            <div style="position:relative;margin-bottom:14px">
+              <input placeholder="🔍 พิมพ์ชื่อสินค้า/SKU เพื่อเพิ่มลงบิล" value="${b.productSearch}" oninput="S.bill.productSearch=this.value;render()" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface-warm);font-size:13px;color:var(--text);font-family:inherit">
+              ${searchResults.length > 0 ? `
+                <div class="search-dropdown">
+                  ${searchResults.map(p => `<div class="search-result" onclick="addBillItem('${p.id}')">
+                    <div style="display:flex;gap:10px;align-items:center">
+                      <div style="width:32px;height:32px;background:var(--surface-warm);border-radius:4px;display:grid;place-items:center;font-size:18px;flex-shrink:0;overflow:hidden">${p.cover?`<img src="${p.cover}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='${p.icon}'">`:p.icon}</div>
+                      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name}</div><div style="font-size:10px;color:var(--text-muted)">SKU: ${p.id} · สต็อก ${p.stock}</div></div>
+                      <div style="text-align:right;font-family:JetBrains Mono,monospace;font-size:12px;flex-shrink:0"><b style="color:var(--brand)">${money(p.retail)}</b><br><span style="color:var(--wholesale);font-size:10px">ส่ง ${money(p.wholesale)}</span></div>
+                    </div>
+                  </div>`).join('')}
+                </div>
+              ` : ''}
+            </div>
+
+            ${lineItems.length === 0 ? `<div style="text-align:center;padding:30px;color:var(--text-muted);font-size:13px;background:var(--surface-warm);border-radius:6px;border:2px dashed var(--border)">📦 ยังไม่มีสินค้าในบิล — พิมพ์ค้นหาด้านบนเพื่อเพิ่ม</div>` : `
+              <table class="admin-table" style="border:0">
+                <thead><tr>
+                  <th style="width:36px"></th>
+                  <th>สินค้า</th>
+                  <th style="width:80px">จำนวน</th>
+                  <th style="width:110px">ราคาต่อหน่วย</th>
+                  <th style="text-align:right;width:90px">รวม</th>
+                  <th style="width:36px"></th>
+                </tr></thead>
+                <tbody>
+                  ${b.items.map((it, i) => {
+                    const p = EP.find(x => x.id === it.pid);
+                    if (!p) return '';
+                    const priceEach = it.priceOverride !== undefined && it.priceOverride !== null ? it.priceOverride : (it.priceMode === 'wholesale' ? p.wholesale : p.retail);
+                    return `<tr>
+                      <td><div style="width:32px;height:32px;background:var(--surface-warm);border-radius:4px;display:grid;place-items:center;overflow:hidden">${p.cover?`<img src="${p.cover}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='${p.icon}'">`:p.icon}</div></td>
+                      <td><div style="font-size:12px;font-weight:600">${p.name}</div><div style="font-size:10px;color:var(--text-muted)" class="mono">${p.id}</div></td>
+                      <td><input type="number" min="1" value="${it.qty}" onchange="updateBillItemQty(${i},parseInt(this.value)||1)" style="width:64px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-family:JetBrains Mono,monospace;color:var(--text);text-align:right"></td>
+                      <td>
+                        <div style="display:flex;gap:2px;align-items:center">
+                          <select onchange="setBillItemPriceMode(${i},this.value)" style="padding:4px 6px;border:1px solid var(--border);border-radius:3px;font-size:11px;background:var(--surface);color:var(--text)">
+                            <option value="retail" ${it.priceMode==='retail'?'selected':''}>ปลีก</option>
+                            <option value="wholesale" ${it.priceMode==='wholesale'?'selected':''}>ส่ง</option>
+                            <option value="custom" ${it.priceOverride!==undefined&&it.priceOverride!==null?'selected':''}>Custom</option>
+                          </select>
+                          <input type="number" step="0.01" value="${priceEach}" oninput="setBillItemPrice(${i},parseFloat(this.value)||0)" style="width:60px;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:var(--surface);font-family:JetBrains Mono,monospace;color:var(--text);text-align:right;font-size:12px">
+                        </div>
+                      </td>
+                      <td style="text-align:right;font-weight:700" class="mono">${money(priceEach * it.qty)}</td>
+                      <td><button class="admin-btn admin-btn-danger" onclick="removeBillItem(${i})">🗑️</button></td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            `}
+          </div>
+        </div>
+
+        <!-- RIGHT: Summary -->
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="co-card" style="margin:0;position:sticky;top:100px">
+            <h3>💰 สรุปยอด</h3>
+            <div class="summ-row"><span>ยอดสินค้า (${lineItems.length})</span><span class="mono">${money(subtotal)}</span></div>
+            <div class="summ-row">
+              <span>ส่วนลด</span>
+              <span><input type="number" min="0" step="0.01" value="${b.discount}" oninput="S.bill.discount=parseFloat(this.value)||0;render()" style="width:80px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-warm);text-align:right;font-family:JetBrains Mono,monospace;color:var(--text)"></span>
+            </div>
+            <div class="summ-row">
+              <span>ค่าจัดส่ง <span style="color:var(--text-faint);font-size:10px">(สินค้า ${totalWeight.toFixed(1)}kg → แนะนำ ฿${suggestedShip})</span></span>
+              <span><input type="number" min="0" step="0.01" value="${b.shipping}" oninput="S.bill.shipping=parseFloat(this.value)||0;render()" style="width:80px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-warm);text-align:right;font-family:JetBrains Mono,monospace;color:var(--text)"></span>
+            </div>
+            ${b.customer.isCorporate?`
+              <div class="summ-row" style="font-size:11px;color:var(--text-muted)"><span>ยอดก่อน VAT</span><span class="mono">${money(grandTotal/1.07)}</span></div>
+              <div class="summ-row" style="font-size:11px;color:var(--text-muted)"><span>VAT 7%</span><span class="mono">${money(grandTotal - grandTotal/1.07)}</span></div>
+            `:''}
+            <div class="summ-total"><b>รวมทั้งสิ้น</b><b class="tot">${money(grandTotal)}</b></div>
+
+            <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px">
+              <label style="font-size:11px;color:var(--text-muted)">ขนส่ง</label>
+              <select onchange="S.bill.shippingMethod=this.value" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-family:inherit">
+                <option value="kerry" ${b.shippingMethod==='kerry'?'selected':''}>Kerry Express (1-2 วัน)</option>
+                <option value="flash" ${b.shippingMethod==='flash'?'selected':''}>Flash Express (2-3 วัน)</option>
+                <option value="pickup" ${b.shippingMethod==='pickup'?'selected':''}>รับเองที่คลัง</option>
+              </select>
+              <label style="font-size:11px;color:var(--text-muted);margin-top:6px">การชำระเงิน</label>
+              <select onchange="S.bill.payment=this.value" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-family:inherit">
+                <option value="cash" ${b.payment==='cash'?'selected':''}>💵 เงินสด</option>
+                <option value="qr" ${b.payment==='qr'?'selected':''}>📱 QR PromptPay</option>
+                <option value="bank" ${b.payment==='bank'?'selected':''}>🏦 โอนธนาคาร</option>
+                <option value="credit" ${b.payment==='credit'?'selected':''}>📝 เครดิต (ค้างชำระ)</option>
+                <option value="cod" ${b.payment==='cod'?'selected':''}>📦 COD เก็บปลายทาง</option>
+              </select>
+              <label style="font-size:11px;color:var(--text-muted);margin-top:6px">หมายเหตุ</label>
+              <textarea rows="2" oninput="S.bill.note=this.value" placeholder="หมายเหตุในบิล (ถ้ามี)" style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface-warm);color:var(--text);font-family:inherit;font-size:12px;resize:vertical">${b.note||''}</textarea>
+            </div>
+
+            <button class="btn btn-primary btn-block btn-big" style="margin-top:14px" onclick="finalizeBill()" ${lineItems.length===0||!b.customer.name?'disabled style="opacity:.5;cursor:not-allowed;margin-top:14px"':''}>💾 สร้างบิล + พิมพ์ →</button>
+            <div style="text-align:center;font-size:10px;color:var(--text-muted);margin-top:6px">${!b.customer.name?'⚠ กรอกชื่อลูกค้าก่อน':lineItems.length===0?'⚠ เพิ่มสินค้าอย่างน้อย 1 รายการ':'✓ พร้อมสร้างบิล'}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function resetBillBuilder() {
+    if (S.bill.items.length && !confirm("ล้างข้อมูลบิลทั้งหมด?")) return;
+    S.bill = {
+      items: [], customer: { name:'', phone:'', email:'', address:'', taxId:'', company:'', isCorporate:false },
+      discount: 0, shipping: 0, shippingMethod: 'kerry', payment: 'cash', note: '',
+      productSearch: '', customerSearch: '',
+    };
+    render();
+  }
+
+  function addBillItem(pid) {
+    const p = EP.find(x => x.id === pid);
+    if (!p) return;
+    // If already in items, +qty
+    const existing = S.bill.items.find(i => i.pid === pid);
+    if (existing) {
+      existing.qty += 1;
+    } else {
+      S.bill.items.push({ pid, qty: 1, priceMode: 'retail' });
+    }
+    S.bill.productSearch = '';
+    toast(`+ ${p.name.slice(0, 25)}...`);
+    render();
+  }
+  function removeBillItem(idx) {
+    S.bill.items.splice(idx, 1);
+    render();
+  }
+  function updateBillItemQty(idx, qty) {
+    S.bill.items[idx].qty = Math.max(1, qty);
+    render();
+  }
+  function setBillItemPriceMode(idx, mode) {
+    S.bill.items[idx].priceMode = mode;
+    if (mode !== 'custom') S.bill.items[idx].priceOverride = null;
+    render();
+  }
+  function setBillItemPrice(idx, price) {
+    S.bill.items[idx].priceOverride = price;
+    S.bill.items[idx].priceMode = 'custom';
+    render();
+  }
+  function selectCustomer(key) {
+    const u = S.registeredUsers.find(u => u.phone === key || u.email === key);
+    if (!u) return;
+    S.bill.customer = {
+      name: u.name || (u.firstName + ' ' + u.lastName),
+      phone: u.phone || '', email: u.email || '',
+      address: u.address || '',
+      isCorporate: !!u.isCorporate,
+      company: u.company || '', taxId: u.taxId || '', branch: u.branch || 'สำนักงานใหญ่',
+    };
+    S.bill.customerSearch = '';
+    toast(`เลือกลูกค้า: ${u.name}`);
+    render();
+  }
+
+  async function finalizeBill() {
+    const b = S.bill;
+    if (!b.customer.name) { toast("กรุณาใส่ชื่อลูกค้า"); return; }
+    if (b.items.length === 0) { toast("กรุณาเพิ่มสินค้าอย่างน้อย 1 รายการ"); return; }
+
+    // Compute
+    const items = b.items.map(it => {
+      const p = EP.find(x => x.id === it.pid);
+      const priceEach = it.priceOverride !== undefined && it.priceOverride !== null
+        ? it.priceOverride
+        : (it.priceMode === 'wholesale' ? p.wholesale : p.retail);
+      return { pid: it.pid, qty: it.qty, priceEach, size: '' };
+    });
+    const subtotal = items.reduce((s, i) => s + i.priceEach * i.qty, 0);
+    const discount = Number(b.discount) || 0;
+    const shipping = Number(b.shipping) || 0;
+    const total = Math.max(0, subtotal - discount + shipping);
+
+    // Generate PO
+    const now = new Date();
+    const yymm = String(now.getFullYear()+543).slice(-2) + String(now.getMonth()+1).padStart(2,'0');
+    const rand = String(Math.floor(Math.random()*99999)).padStart(5,'0');
+    const po = `PO-${yymm}-${rand}`;
+
+    const order = {
+      po,
+      status: b.payment === 'credit' ? 'pending_payment' : 'paid',
+      total, subtotal, discount, shipping,
+      items,
+      shippingMethod: b.shippingMethod, carrierName: null, tracking: null,
+      payment: b.payment,
+      taxInvoice: b.customer.isCorporate,
+      createdAt: now.toISOString(), updatedAt: now.toISOString(),
+      mode: 'admin-manual',
+      customer: {
+        name: b.customer.name,
+        phone: b.customer.phone,
+        address: b.customer.address,
+        taxId: b.customer.taxId || '',
+        company: b.customer.company || '',
+        branch: b.customer.branch || '',
+      },
+      note: b.note || '',
+      createdBy: 'admin',
+    };
+
+    // Save
+    S.orders.unshift(order);
+    if (!S.sheetOrders) S.sheetOrders = [];
+    S.sheetOrders.unshift(order);
+    saveState();
+
+    // Push to Sheet
+    if (S.sheetApiUrl && S.autoSync) await pushOrderToSheet(order);
+
+    toast(`✓ สร้างบิล ${po} แล้ว → เปิดหน้าพิมพ์`);
+    // Reset builder
+    S.bill = { items: [], customer: { name:'', phone:'', email:'', address:'', taxId:'', company:'', isCorporate:false }, discount: 0, shipping: 0, shippingMethod: 'kerry', payment: 'cash', note: '', productSearch: '', customerSearch: '' };
+    saveState();
+    // Navigate to bill
+    go('/admin/bill/' + po);
+  }
+
   function viewAdminBill(po) {
     const orders = S.sheetOrders || S.orders || [];
     const o = orders.find(x => x.po === po);
@@ -2548,8 +3177,10 @@
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
           <button class="btn btn-primary" onclick="saveSheetSettings()">💾 บันทึกการตั้งค่า</button>
           <button class="btn btn-outline" onclick="testSheetConnection()">🔍 ทดสอบเชื่อมต่อ</button>
-          <button class="btn btn-outline" onclick="pullProductsFromSheet().then(()=>render())">↓ โหลดจาก Sheet</button>
-          <button class="btn btn-outline" onclick="bulkPushProductsToSheet(EP).then(()=>render())">↑ ส่งทั้งหมดขึ้น Sheet</button>
+          <button class="btn btn-outline" onclick="pullProductsFromSheet().then(()=>render())">↓ โหลดสินค้า</button>
+          <button class="btn btn-outline" onclick="pullOrdersFromSheet().then(()=>render())">↓ โหลด orders</button>
+          <button class="btn btn-outline" onclick="bulkPushProductsToSheet(EP).then(()=>render())">↑ ส่งสินค้าทั้งหมด</button>
+          <button class="btn btn-outline" onclick="testPushOrder()">🧪 ทดสอบ push order</button>
           <button class="btn btn-ghost" onclick="clearSheetCache()">🗑️ ล้าง cache</button>
         </div>
       </div>
@@ -2757,53 +3388,85 @@
     go('/admin/products');
   }
 
+  // รวม orders จาก Sheet + localStorage (dedupe by PO), กรองตาม user
+  function getMyOrders() {
+    const local = S.orders || [];
+    const sheet = S.sheetOrders || [];
+    // Merge — sheet เป็นแหล่งหลัก, localStorage เติมถ้าไม่มีใน sheet
+    const byPo = new Map();
+    sheet.forEach(o => byPo.set(o.po, o));
+    local.forEach(o => { if (!byPo.has(o.po)) byPo.set(o.po, o); });
+    let all = Array.from(byPo.values());
+    // เรียงจากใหม่สุดก่อน
+    all.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    // กรอง: admin เห็นทั้งหมด, customer เห็นแค่ของตัวเอง
+    if (isAdmin()) return all;
+    if (!S.user) return local; // guest: เห็นแค่ local
+    const phone = S.user.phone || '';
+    const email = S.user.email || '';
+    const name = S.user.name || '';
+    return all.filter(o => {
+      const c = o.customer || {};
+      return (phone && c.phone === phone) ||
+             (email && c.email === email) ||
+             (name && c.name === name);
+    });
+  }
+
   function viewOrders() {
-    if (S.orders.length === 0) {
+    // Pull latest from Sheet in background (silent)
+    if (S.sheetApiUrl && (Date.now() - (S.sheetLastSync||0)) > 30000) {
+      pullOrdersFromSheet().then(() => render()).catch(()=>{});
+    }
+    const myOrders = getMyOrders();
+    if (myOrders.length === 0) {
       return `
         <div class="section-head"><h2>คำสั่งซื้อของฉัน</h2></div>
         <div class="cart-empty">
           <div class="icon">📋</div>
           <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px">ยังไม่มีคำสั่งซื้อ</div>
-          <div style="font-size:13px;margin-bottom:16px">ลองสั่งซื้อสินค้าแรกเลย!</div>
+          <div style="font-size:13px;margin-bottom:16px">${!S.user ? 'เข้าสู่ระบบ เพื่อดูคำสั่งซื้อของคุณ · หรือ' : 'ลองสั่งซื้อสินค้าแรกเลย!'}</div>
           <button class="btn btn-primary" onclick="go('/')">← ไปเลือกสินค้า</button>
+          ${!S.user ? '<button class="btn btn-outline" style="margin-left:8px" onclick="go(\'/login\')">🔑 เข้าสู่ระบบ</button>' : ''}
         </div>`;
     }
     return `
       <div class="section-head">
-        <h2>คำสั่งซื้อของฉัน <span style="color:var(--text-muted);font-size:14px;font-weight:400">(${S.orders.length} รายการ)</span></h2>
+        <h2>คำสั่งซื้อของฉัน <span style="color:var(--text-muted);font-size:14px;font-weight:400">(${myOrders.length} รายการ)</span></h2>
+        ${S.sheetApiUrl ? '<button class="btn btn-ghost" onclick="pullOrdersFromSheet().then(()=>render())">🔄 Refresh</button>' : ''}
       </div>
       <div style="display:flex;flex-direction:column;gap:12px">
-        ${S.orders.map(o => {
-          const st = STATUS_LABEL[o.status];
-          const firstItem = EP.find(x => x.id === o.items[0].pid);
-          const nextStatus = STATUS_FLOW[statusIndex(o.status) + 1];
-          return `<div class="co-card" style="margin:0;cursor:pointer" onclick="if(!event.target.closest('button'))go('/order/${o.po}')">
+        ${myOrders.map(o => {
+          const st = STATUS_LABEL[o.status] || { color:'#666', icon:'❓', th:o.status };
+          const firstItem = EP.find(x => x.id === (o.items[0]||{}).pid) || { icon: '📦' };
+          return `<div class="co-card" style="margin:0;cursor:pointer" onclick="go('/order/${o.po}')">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
               <div style="display:flex;gap:14px;align-items:center;flex:1;min-width:200px">
-                <div style="width:52px;height:52px;background:var(--surface-warm);border-radius:8px;display:grid;place-items:center;font-size:28px;flex-shrink:0">${firstItem.icon}</div>
+                <div style="width:52px;height:52px;background:var(--surface-warm);border-radius:8px;display:grid;place-items:center;font-size:28px;flex-shrink:0;overflow:hidden">${firstItem.cover?`<img src="${firstItem.cover}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='${firstItem.icon}'">`:firstItem.icon}</div>
                 <div>
                   <div class="mono" style="font-size:13px;font-weight:700;color:var(--brand)">${o.po}</div>
                   <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${new Date(o.createdAt).toLocaleString('th-TH')}</div>
                   <div style="font-size:12px;margin-top:4px">${o.items.length} รายการ · <b>${money(o.total)}</b></div>
                 </div>
               </div>
-              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
-                <span style="background:${st.color};color:#fff;padding:5px 12px;border-radius:99px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px">${st.icon} ${st.th}</span>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+                <span style="background:${st.color};color:#fff;padding:5px 12px;border-radius:99px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px;white-space:nowrap">${st.icon} ${st.th}</span>
                 ${o.tracking ? `<div class="mono" style="font-size:10px;color:var(--text-muted)">📦 ${o.tracking}</div>` : ''}
-                ${nextStatus && o.status !== 'cancelled' ? `<button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="event.stopPropagation();advanceOrder('${o.po}')">▶ ${STATUS_LABEL[nextStatus].th}</button>` : ''}
               </div>
             </div>
           </div>`;
         }).join("")}
       </div>
-      <div style="margin-top:20px;padding:16px;background:var(--wholesale-soft);border-radius:8px;font-size:12px;color:var(--wholesale)">
-        💡 <b>โหมดเดโม่:</b> กดปุ่ม "▶ สถานะถัดไป" ในแต่ละใบเพื่อจำลองการอัพเดตสถานะ (ในระบบจริง สถานะจะอัพเดตจาก admin/ระบบขนส่งอัตโนมัติ)
+      <div style="margin-top:20px;padding:12px;background:var(--surface-warm);border-radius:8px;font-size:11px;color:var(--text-muted);text-align:center">
+        💡 สถานะจะอัพเดตอัตโนมัติจากทางร้าน · <a onclick="pullOrdersFromSheet().then(()=>render())" style="color:var(--brand);cursor:pointer;font-weight:700">🔄 Refresh</a>
       </div>
     `;
   }
 
   function viewOrderDetail(po, isSuccess) {
-    const o = S.orders.find(x => x.po === po);
+    // ดูจากทั้ง localStorage + Sheet
+    const all = [...(S.sheetOrders || []), ...S.orders];
+    const o = all.find(x => x.po === po);
     if (!o) {
       return `<div class="cart-empty"><div class="icon">🔍</div><div style="font-size:16px;color:var(--text)">ไม่พบคำสั่งซื้อ ${po}</div><button class="btn btn-primary" style="margin-top:16px" onclick="go('/')">← กลับหน้าแรก</button></div>`;
     }
@@ -2832,11 +3495,12 @@
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">🚚 หมายเลขติดตามพัสดุ (${o.carrierName})</div>
           <div class="mono" style="font-size:16px;font-weight:700;color:#7C3AED">${o.tracking}</div>
         </div>` : ''}
-        ${nextStatus && o.status !== 'cancelled' ? `
+        ${isAdmin() && nextStatus && o.status !== 'cancelled' ? `
           <div style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--border)">
-            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">🎮 <b>โหมดเดโม่:</b> จำลองสถานะถัดไป</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">🔧 <b>Admin:</b> เปลี่ยนสถานะ</div>
             <button class="btn btn-primary" onclick="advanceOrder('${o.po}')">▶ อัพเดต: ${STATUS_LABEL[nextStatus].th}</button>
             ${o.status !== 'delivered' && o.status !== 'shipping' ? `<button class="btn btn-ghost" style="margin-left:8px" onclick="cancelOrder('${o.po}')">ยกเลิกคำสั่งซื้อ</button>` : ''}
+            <button class="btn btn-outline" style="margin-left:8px" onclick="go('/admin/order/${o.po}')">🔧 จัดการแบบเต็ม</button>
           </div>
         ` : ''}
       </div>
