@@ -1017,6 +1017,7 @@
     sheetToken: safeGet("iamplastic.sheetToken", "") || "iamplastic_secret_2026",
     sheetProducts: safeGet("iamplastic.sheetProducts", null),
     sheetOrders: safeGet("iamplastic.sheetOrders", null),
+    sheetBills: safeGet("iamplastic.sheetBills", { cash: [], tax: [] }),
     sheetLastSync: safeGet("iamplastic.sheetLastSync", 0),
     autoSync: safeGet("iamplastic.autoSync", true),
     // Auth
@@ -1062,6 +1063,7 @@
     safeSet("iamplastic.sheetToken", S.sheetToken);
     safeSet("iamplastic.sheetProducts", S.sheetProducts);
     safeSet("iamplastic.sheetOrders", S.sheetOrders);
+    safeSet("iamplastic.sheetBills", S.sheetBills);
     safeSet("iamplastic.sheetLastSync", S.sheetLastSync);
     safeSet("iamplastic.autoSync", S.autoSync);
     safeSet("iamplastic.user", S.user);
@@ -1516,6 +1518,7 @@
     else if (r.startsWith("/admin/edit/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminEdit(r.split("/")[3]); }
     else if (r === "/admin/new") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminEdit(null); }
     else if (r === "/admin/orders") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminOrders(); }
+    else if (r === "/admin/bills") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminBills(); }
     else if (r === "/admin/create-bill") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminCreateBill(); }
     else if (r.startsWith("/admin/order/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminOrderDetail(r.split("/")[3]); }
     else if (r.startsWith("/admin/bill/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminBill(r.split("/")[3]); }
@@ -1607,8 +1610,9 @@
         <span style="opacity:.7">·</span>
         <a onclick="go('/admin')">Dashboard</a>
         <a onclick="go('/admin/products')">สินค้า (${EP.length})</a>
-        <a onclick="go('/admin/orders')">คำสั่งซื้อ (${(S.sheetOrders||S.orders||[]).length})</a>
-        <a onclick="go('/admin/create-bill')" style="background:rgba(0,0,0,.12);padding:3px 8px;border-radius:4px">🧾 เปิดบิลใหม่</a>
+        <a onclick="go('/admin/orders')">📋 PO (${(S.sheetOrders||S.orders||[]).length})</a>
+        <a onclick="go('/admin/bills')">🧾 บิล (${((S.sheetBills||{}).cash||[]).length + ((S.sheetBills||{}).tax||[]).length})</a>
+        <a onclick="go('/admin/create-bill')" style="background:rgba(0,0,0,.12);padding:3px 8px;border-radius:4px">➕ เปิดบิลใหม่</a>
         <a onclick="go('/admin/new')">➕ เพิ่มสินค้า</a>
         <span style="margin-left:auto;opacity:.75;font-size:11px">${S.user.name || 'Admin'}</span>
       </div>
@@ -2765,6 +2769,40 @@
     }
   }
 
+  async function pullBillsFromSheet() {
+    if (!S.sheetApiUrl) { toast("ยังไม่เชื่อม Sheet"); return false; }
+    try {
+      const res = await apiCall("bills");
+      if (!res.ok) throw new Error(res.error);
+      S.sheetBills = { cash: res.cash || [], tax: res.tax || [] };
+      saveState();
+      toast(`↓ โหลดบิล: เงินสด ${S.sheetBills.cash.length} · ใบกำกับ ${S.sheetBills.tax.length} ✓`);
+      return true;
+    } catch (e) {
+      toast("❌ โหลดบิลไม่ได้: " + e.message);
+      return false;
+    }
+  }
+
+  function allBillsFlat() {
+    const b = S.sheetBills || { cash: [], tax: [] };
+    return [
+      ...(b.cash || []).map(x => ({ ...x, type: 'cash' })),
+      ...(b.tax  || []).map(x => ({ ...x, type: 'tax'  })),
+    ];
+  }
+
+  async function updateBillStatusOnSheet(bl, status) {
+    if (!S.sheetApiUrl) return true;
+    try {
+      const res = await apiCall("updateBillStatus", { bl, status }, true);
+      return res.ok;
+    } catch (e) {
+      console.error("updateBillStatusOnSheet:", e);
+      return false;
+    }
+  }
+
   async function updateOrderStatusOnSheet(po, status, tracking) {
     if (!S.sheetApiUrl) return true; // no-op if not connected
     try {
@@ -2819,6 +2857,86 @@
     `;
   }
 
+  function viewAdminBills() {
+    if (S.sheetApiUrl && (Date.now() - (S.sheetBillsLastSync||0)) > 10000) {
+      pullBillsFromSheet().then(() => { S.sheetBillsLastSync = Date.now(); render(); }).catch(()=>{});
+    }
+    const tab = S.billsTab || 'cash'; // 'cash' หรือ 'tax'
+    const b = S.sheetBills || { cash: [], tax: [] };
+    const cashList = (b.cash || []).slice().sort((a,b) => new Date(b.createdAt||0) - new Date(a.createdAt||0));
+    const taxList  = (b.tax  || []).slice().sort((a,b) => new Date(b.createdAt||0) - new Date(a.createdAt||0));
+    const bills = tab === 'tax' ? taxList : cashList;
+    const tabBtn = (id, label, count, emoji) => `
+      <button onclick="setBillsTab('${id}')" style="
+        padding:10px 18px;border:none;border-bottom:3px solid ${tab===id?'var(--brand)':'transparent'};
+        background:${tab===id?'#fff':'transparent'};color:${tab===id?'var(--brand)':'var(--text-muted)'};
+        font-weight:${tab===id?'800':'600'};font-size:14px;cursor:pointer;font-family:inherit
+      ">${emoji} ${label} <span style="background:${tab===id?'var(--brand)':'#ddd'};color:#fff;padding:1px 8px;border-radius:99px;font-size:11px;margin-left:4px">${count}</span></button>
+    `;
+    return `
+      ${adminPageHeader('บิลขาย', '🧾', `
+        <button class="btn btn-primary" onclick="go('/admin/create-bill')">➕ เปิดบิลใหม่</button>
+        <button class="btn btn-outline" onclick="pullBillsFromSheet().then(()=>render())">🔄 Refresh</button>
+      `)}
+      <div style="background:#fff3cd;border:1px solid #ffc107;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#7a5a00">
+        💡 บิลแยก 2 tabs ใน Sheet — <b>bills_cash</b> (บิลเงินสด · ไม่ออก Tax) กับ <b>bills_tax</b> (ใบกำกับภาษี · มี Tax ID)
+      </div>
+      <div style="display:flex;gap:0;border-bottom:1px solid #ddd;margin-bottom:14px;background:#f7f7f7;border-radius:8px 8px 0 0;overflow:hidden">
+        ${tabBtn('cash', 'บิลเงินสด (RC)', cashList.length, '💵')}
+        ${tabBtn('tax',  'ใบกำกับภาษี (TX)', taxList.length, '🏢')}
+      </div>
+      ${bills.length === 0 ? `<div class="cart-empty"><div class="icon">${tab==='tax'?'🏢':'💵'}</div><div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px">ยังไม่มี${tab==='tax'?'ใบกำกับภาษี':'บิลเงินสด'}</div><div style="font-size:13px">กด "เปิดบิลใหม่" เพื่อสร้างบิลแรก · หรือกด "📤 ออกบิลให้ลูกค้า" จากหน้า PO</div></div>` : `
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead><tr><th>เลขที่</th><th>ลูกค้า</th><th>สถานะ</th><th style="text-align:right">ยอด</th><th>Payment</th><th>วันที่</th><th style="width:180px">Actions</th></tr></thead>
+          <tbody>
+            ${bills.map(b => {
+              const st = b.status === 'paid' ? { color:'#22c55e', icon:'✓', th:'ชำระแล้ว' }
+                       : b.status === 'pending_payment' ? { color:'#f59e0b', icon:'⏳', th:'รอชำระ (เครดิต)' }
+                       : b.status === 'cancelled' ? { color:'#ef4444', icon:'✕', th:'ยกเลิก' }
+                       : { color:'#666', icon:'•', th:b.status||'-' };
+              const id = b.bl||b.po;
+              return `<tr>
+                <td class="mono" style="font-weight:700;color:var(--brand)">${id}</td>
+                <td>
+                  <div style="font-weight:600">${(b.customer||{}).name || '-'}</div>
+                  <div style="font-size:11px;color:var(--text-muted)">${(b.customer||{}).phone || ''}</div>
+                  ${(b.customer||{}).company ? `<div style="font-size:11px;color:var(--text-muted)">🏢 ${b.customer.company}${b.customer.taxId?' · '+b.customer.taxId:''}</div>` : ''}
+                </td>
+                <td><span style="background:${st.color};color:#fff;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap">${st.icon} ${st.th}</span></td>
+                <td class="mono" style="text-align:right;font-weight:700;color:var(--brand)">${money(b.total||0)}</td>
+                <td style="font-size:11px">${({cash:'💵 เงินสด',qr:'📱 QR',bank:'🏦 โอน',credit:'📝 เครดิต',card:'💳 บัตร'})[b.payment]||b.payment||'-'}</td>
+                <td style="font-size:11px">${new Date(b.createdAt).toLocaleString('th-TH')}</td>
+                <td>
+                  <button class="admin-btn" onclick="go('/admin/bill/${id}')" title="เปิดบิล/พิมพ์">🧾</button>
+                  <button class="admin-btn" onclick="copyBillLink('${id}')" title="คัดลอกลิงก์ส่งลูกค้า">🔗</button>
+                  ${b.status === 'pending_payment' ? `<button class="admin-btn" onclick="markBillPaid('${id}')" title="ยืนยันชำระแล้ว">✓</button>` : ''}
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`}
+    `;
+  }
+
+  function setBillsTab(t) { S.billsTab = t; render(); }
+
+  function copyBillLink(id) {
+    const url = location.origin + location.pathname + '#/admin/bill/' + id;
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => toast('📋 คัดลอกลิงก์แล้ว: ' + url)).catch(() => toast('ลิงก์: ' + url));
+    else { prompt('คัดลอกลิงก์ (Ctrl+C):', url); }
+  }
+
+  async function markBillPaid(bl) {
+    if (!confirm(`ยืนยันว่าบิล ${bl} ชำระแล้ว?`)) return;
+    const bill = allBillsFlat().find(b => (b.bl||b.po) === bl);
+    if (bill) { bill.status = 'paid'; bill.updatedAt = new Date().toISOString(); saveState(); }
+    const ok = await updateBillStatusOnSheet(bl, 'paid');
+    toast(ok ? `✓ บิล ${bl} → ชำระแล้ว` : '❌ อัพเดตไม่สำเร็จ');
+    render();
+  }
+
   async function advanceOrderAdmin(po) {
     const orders = S.sheetOrders || S.orders || [];
     const o = orders.find(x => x.po === po);
@@ -2852,7 +2970,9 @@
     return `
       ${adminPageHeader('คำสั่งซื้อ ' + o.po, '📄', `
         <button class="btn btn-outline" onclick="go('/admin/orders')">← กลับ</button>
-        <button class="btn btn-primary" onclick="go('/admin/bill/${o.po}')">🧾 เปิดบิล</button>
+        <button class="btn btn-primary" onclick="issueBillFromOrder('${o.po}', false)">📤 ออกบิลเงินสด</button>
+        <button class="btn btn-primary" onclick="issueBillFromOrder('${o.po}', true)" style="background:var(--gold);color:#1a1a1a">🏢 ออกใบกำกับภาษี</button>
+        <button class="btn btn-outline" onclick="go('/admin/bill/${o.po}')">👁️ ดู PO</button>
       `)}
       <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
         <div style="display:flex;flex-direction:column;gap:14px">
@@ -3211,6 +3331,50 @@
     render();
   }
 
+  // ออกบิลจาก PO — asTax=true → ใบกำกับภาษี, false → บิลเงินสด
+  async function issueBillFromOrder(po, asTax) {
+    const o = (S.sheetOrders || S.orders || []).find(x => x.po === po);
+    if (!o) { toast("ไม่พบคำสั่งซื้อ " + po); return; }
+    const cust = o.customer || {};
+    if (asTax && !cust.taxId) {
+      const tid = prompt("ลูกค้ายังไม่มี Tax ID — ใส่เลขผู้เสียภาษี 13 หลัก:", "");
+      if (!tid || tid.length < 10) { toast("ยกเลิก — ไม่มี Tax ID"); return; }
+      cust.taxId = tid;
+      cust.company = cust.company || prompt("ชื่อบริษัท:", cust.name || "") || cust.name || "";
+    }
+    const now = new Date();
+    const yymm = String(now.getFullYear()+543).slice(-2) + String(now.getMonth()+1).padStart(2,'0');
+    const rand = String(Math.floor(Math.random()*99999)).padStart(5,'0');
+    const bl = `${asTax?'TX':'RC'}-${yymm}-${rand}`;
+    const bill = {
+      po: bl, bl,
+      status: o.status === 'paid' || o.status === 'preparing' || o.status === 'shipping' || o.status === 'delivered' ? 'paid' : 'pending_payment',
+      total: o.total || 0, subtotal: o.subtotal || 0,
+      discount: o.discount || 0, shipping: o.shipping || 0,
+      items: o.items || [], shippingMethod: o.shippingMethod || '',
+      payment: o.payment || 'bank',
+      taxInvoice: !!asTax,
+      type: asTax ? 'tax' : 'cash',
+      createdAt: now.toISOString(), updatedAt: now.toISOString(),
+      mode: 'from-po', fromPO: po,
+      customer: {
+        name: cust.name || '', phone: cust.phone || '', address: cust.address || '',
+        company: cust.company || '', taxId: cust.taxId || '', branch: cust.branch || '',
+      },
+      note: `ออกจาก ${po}`,
+      createdBy: (S.user && S.user.name) || 'admin',
+    };
+    if (!S.sheetBills) S.sheetBills = { cash: [], tax: [] };
+    if (asTax) S.sheetBills.tax.unshift(bill); else S.sheetBills.cash.unshift(bill);
+    saveState();
+    if (S.sheetApiUrl) {
+      const res = await apiCall("createBill", { data: bill }, true);
+      if (!(res && res.ok)) { toast("❌ ส่งขึ้น Sheet ไม่สำเร็จ: " + ((res && res.error) || '')); return; }
+    }
+    toast(`✓ ออก${asTax?'ใบกำกับภาษี':'บิลเงินสด'} ${bl} แล้ว · เก็บใน tab ${asTax?'bills_tax':'bills_cash'}`);
+    go('/admin/bill/' + bl);
+  }
+
   async function finalizeBill() {
     const b = S.bill;
     if (!b.customer.name) { toast("กรุณาใส่ชื่อลูกค้า"); return; }
@@ -3229,20 +3393,23 @@
     const shipping = Number(b.shipping) || 0;
     const total = Math.max(0, subtotal - discount + shipping);
 
-    // Generate PO
+    // Generate เลขที่บิล — ใบกำกับภาษี = TX-  ·  บิลเงินสด = RC-
+    const isTax = !!b.customer.isCorporate && !!b.customer.taxId;
     const now = new Date();
     const yymm = String(now.getFullYear()+543).slice(-2) + String(now.getMonth()+1).padStart(2,'0');
     const rand = String(Math.floor(Math.random()*99999)).padStart(5,'0');
-    const po = `PO-${yymm}-${rand}`;
+    const bl = `${isTax?'TX':'RC'}-${yymm}-${rand}`;
 
-    const order = {
-      po,
+    const bill = {
+      po: bl, // reuse po field for compatibility with viewAdminBill
+      bl,
       status: b.payment === 'credit' ? 'pending_payment' : 'paid',
       total, subtotal, discount, shipping,
       items,
       shippingMethod: b.shippingMethod, carrierName: null, tracking: null,
       payment: b.payment,
-      taxInvoice: b.customer.isCorporate,
+      taxInvoice: isTax,
+      type: isTax ? 'tax' : 'cash',
       createdAt: now.toISOString(), updatedAt: now.toISOString(),
       mode: 'admin-manual',
       customer: {
@@ -3257,27 +3424,39 @@
       createdBy: 'admin',
     };
 
-    // Save
-    S.orders.unshift(order);
-    if (!S.sheetOrders) S.sheetOrders = [];
-    S.sheetOrders.unshift(order);
+    // Save locally in sheetBills (แยก cash/tax)
+    if (!S.sheetBills) S.sheetBills = { cash: [], tax: [] };
+    if (isTax) S.sheetBills.tax.unshift(bill); else S.sheetBills.cash.unshift(bill);
     saveState();
 
-    // Push to Sheet
-    if (S.sheetApiUrl && S.autoSync) await pushOrderToSheet(order);
+    // Push to bills_cash / bills_tax tab in Sheet
+    if (S.sheetApiUrl && S.autoSync) {
+      const res = await apiCall("createBill", { data: bill }, true);
+      if (res && res.ok) console.log("[bill] pushed to Sheet:", bl);
+      else console.error("[bill] push failed:", res && res.error);
+    }
 
-    toast(`✓ สร้างบิล ${po} แล้ว → เปิดหน้าพิมพ์`);
+    toast(`✓ สร้าง${isTax?'ใบกำกับภาษี':'บิลเงินสด'} ${bl} แล้ว`);
     // Reset builder
     S.bill = { items: [], customer: { name:'', phone:'', email:'', address:'', taxId:'', company:'', isCorporate:false }, discount: 0, shipping: 0, shippingMethod: 'kerry', payment: 'cash', note: '', productSearch: '', customerSearch: '' };
     saveState();
     // Navigate to bill
-    go('/admin/bill/' + po);
+    go('/admin/bill/' + bl);
   }
 
   function viewAdminBill(po) {
-    const orders = S.sheetOrders || S.orders || [];
-    const o = orders.find(x => x.po === po);
-    if (!o) return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบคำสั่งซื้อ ${po}</div></div>`;
+    // ค้นทั้ง PO (orders) และ BL/RC/TX (bills) — po arg อาจเป็น RC-xxx / TX-xxx ก็ได้
+    const all = [...allBillsFlat(), ...(S.sheetOrders || []), ...(S.orders || [])];
+    const o = all.find(x => (x.bl||x.po) === po);
+    if (!o) {
+      // Auto-fetch bills ถ้ายังไม่โหลด
+      const isBill = /^(RC-|TX-|BL-)/.test(po||'');
+      if (isBill && S.sheetApiUrl) {
+        pullBillsFromSheet().then(()=>render());
+        return `<div class="cart-empty"><div class="icon">⏳</div><div>กำลังโหลดบิล ${po}...</div></div>`;
+      }
+      return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบ ${po}</div></div>`;
+    }
     const dt = new Date(o.createdAt);
     const dateStr = dt.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
     return `
