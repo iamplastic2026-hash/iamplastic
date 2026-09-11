@@ -1089,21 +1089,33 @@
   // =======================================================
   async function apiCall(action, extra = {}, isPost = false) {
     if (!S.sheetApiUrl) throw new Error("ยังไม่ได้ตั้งค่า Sheet API URL");
-    if (isPost) {
-      // Apps Script POST: ต้องส่งเป็น text/plain เพื่อ bypass preflight CORS
-      const r = await fetch(S.sheetApiUrl, {
-        method: "POST",
-        redirect: "follow",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action, token: S.sheetToken, ...extra }),
-      });
-      return await r.json();
-    } else {
-      const u = new URL(S.sheetApiUrl);
-      u.searchParams.set("action", action);
-      Object.entries(extra).forEach(([k, v]) => u.searchParams.set(k, v));
-      const r = await fetch(u.toString(), { redirect: "follow" });
-      return await r.json();
+    let r, rawText;
+    try {
+      if (isPost) {
+        const body = JSON.stringify({ action, token: S.sheetToken, ...extra });
+        r = await fetch(S.sheetApiUrl, {
+          method: "POST",
+          redirect: "follow",
+          mode: "cors",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body,
+        });
+      } else {
+        const u = new URL(S.sheetApiUrl);
+        u.searchParams.set("action", action);
+        Object.entries(extra).forEach(([k, v]) => u.searchParams.set(k, v));
+        r = await fetch(u.toString(), { redirect: "follow", mode: "cors" });
+      }
+      rawText = await r.text();
+      console.log(`[apiCall ${action}] status=${r.status} body:`, rawText.substring(0, 200));
+      try {
+        return JSON.parse(rawText);
+      } catch (parseErr) {
+        return { ok: false, error: `Response not JSON (status ${r.status}): ${rawText.substring(0, 100)}` };
+      }
+    } catch (netErr) {
+      console.error(`[apiCall ${action}] network error:`, netErr);
+      return { ok: false, error: `Network: ${netErr.message}` };
     }
   }
 
@@ -1154,6 +1166,187 @@
       toast("❌ ส่งเข้า Sheet ไม่สำเร็จ: " + e.message);
       return false;
     }
+  }
+
+  // =======================================================
+  // Slip Upload — ลูกค้าแนบสลิปโอนเงิน
+  // =======================================================
+  function viewUploadSlip(po) {
+    const all = [...(S.sheetOrders || []), ...S.orders];
+    const o = all.find(x => x.po === po);
+    if (!o) return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบคำสั่งซื้อ ${po}</div></div>`;
+    return `
+      <div class="section-head">
+        <h2>📸 แจ้งโอนเงิน / แนบสลิป</h2>
+        <button class="btn btn-ghost" onclick="go('/order/${po}')">← กลับ</button>
+      </div>
+      <div class="co-card" style="margin:0;max-width:640px">
+        <div style="padding:14px 18px;background:var(--brand-soft);border-radius:8px;margin-bottom:16px;border-left:4px solid var(--brand)">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">คำสั่งซื้อ</div>
+          <div class="mono" style="font-size:16px;font-weight:700;color:var(--brand)">${po}</div>
+          <div style="margin-top:6px;font-size:13px">ยอดที่ต้องชำระ: <b class="mono" style="color:var(--brand)">${money(o.total)}</b></div>
+        </div>
+
+        <div class="form-field wide" style="margin-bottom:14px">
+          <label style="font-size:13px;font-weight:600">📸 อัพโหลดสลิป</label>
+          <input type="file" id="slip-file" accept="image/*" onchange="onSlipFileChange(event)" style="padding:8px;font-size:13px;background:var(--surface-warm);border:1px solid var(--border);border-radius:6px;width:100%;font-family:inherit;color:var(--text)">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:6px">📱 บนมือถือ: เลือก "ถ่ายรูป" หรือ "คลังภาพ" · รับไฟล์ JPG, PNG (ระบบจะบีบให้อัตโนมัติ)</div>
+        </div>
+
+        <div id="slip-preview" style="display:none;text-align:center;padding:14px;background:var(--surface-warm);border-radius:8px;margin-bottom:14px">
+          <img id="slip-preview-img" style="max-width:100%;max-height:400px;border-radius:8px;box-shadow:var(--shadow)">
+          <div id="slip-size-info" style="font-size:11px;color:var(--text-muted);margin-top:6px"></div>
+        </div>
+
+        <div class="form-grid" style="margin-bottom:14px">
+          <div class="form-field"><label>วันที่โอน</label><input type="date" id="slip-date" value="${new Date().toISOString().slice(0,10)}"></div>
+          <div class="form-field"><label>เวลาที่โอน</label><input type="time" id="slip-time" value="${new Date().toTimeString().slice(0,5)}"></div>
+          <div class="form-field"><label>ยอดโอน (บาท)</label><input type="number" step="0.01" id="slip-amount" class="mono" value="${o.total}"></div>
+          <div class="form-field"><label>ธนาคาร (ถ้ามี)</label>
+            <select id="slip-bank" style="padding:9px 12px;border:1px solid var(--border);background:var(--surface-warm);border-radius:4px;font-size:13px;color:var(--text);font-family:inherit;width:100%">
+              <option value="">-- เลือก --</option>
+              <option>KBank</option><option>SCB</option><option>Bangkok Bank</option><option>Krungthai</option><option>Krungsri</option><option>TTB</option><option>PromptPay</option><option>อื่นๆ</option>
+            </select>
+          </div>
+          <div class="form-field wide"><label>หมายเหตุ (ถ้ามี)</label><input id="slip-note" placeholder="เช่น: โอนจากบัญชี xxxx"></div>
+        </div>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button class="btn btn-ghost" onclick="go('/order/${po}')">ยกเลิก</button>
+          <button class="btn btn-primary btn-big" onclick="submitSlip('${po}')">✅ ส่งสลิป</button>
+        </div>
+
+        <div style="margin-top:16px;padding:12px 14px;background:var(--wholesale-soft);border-radius:6px;font-size:11px;color:var(--wholesale);line-height:1.6">
+          💡 <b>หลังจากส่งสลิปแล้ว:</b> ระบบจะแจ้งแอดมินตรวจสอบภายใน 1-2 ชม. · สถานะจะเปลี่ยนเป็น "ได้รับชำระ" ทันทีที่ยืนยัน
+        </div>
+      </div>
+    `;
+  }
+
+  let _slipDataUrl = null;
+
+  async function onSlipFileChange(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    // Compress: resize + quality
+    try {
+      const compressed = await compressImage(file, 800, 0.7);
+      _slipDataUrl = compressed.dataUrl;
+      const preview = document.getElementById("slip-preview");
+      const img = document.getElementById("slip-preview-img");
+      const info = document.getElementById("slip-size-info");
+      img.src = compressed.dataUrl;
+      const sizeKB = Math.round(compressed.dataUrl.length / 1024);
+      info.textContent = `📎 ขนาด ${sizeKB} KB · ${compressed.width}×${compressed.height} px${sizeKB > 45 ? ' (⚠️ อาจเก็บใน Sheet ยาก — ระบบจะบีบเพิ่ม)' : ''}`;
+      preview.style.display = "block";
+    } catch (err) {
+      toast("❌ อ่านรูปไม่ได้: " + err.message);
+    }
+  }
+
+  function compressImage(file, maxDim, quality) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Read fail"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("Image load fail"));
+        img.onload = () => {
+          let w = img.width, h = img.height;
+          const scale = Math.min(1, maxDim / Math.max(w, h));
+          w = Math.round(w * scale); h = Math.round(h * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          // Iterative compression to fit ~40KB
+          let q = quality, dataUrl = canvas.toDataURL("image/jpeg", q);
+          let tries = 0;
+          while (dataUrl.length > 45000 && q > 0.2 && tries < 6) {
+            q *= 0.7;
+            dataUrl = canvas.toDataURL("image/jpeg", q);
+            tries++;
+          }
+          resolve({ dataUrl, width: w, height: h });
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function submitSlip(po) {
+    if (!_slipDataUrl) { toast("กรุณาเลือกรูปสลิป"); return; }
+    const g = id => (document.getElementById(id)||{}).value.trim();
+    const slipData = {
+      po,
+      image: _slipDataUrl,
+      date: g("slip-date"),
+      time: g("slip-time"),
+      amount: parseFloat(g("slip-amount")) || 0,
+      bank: g("slip-bank"),
+      note: g("slip-note"),
+      uploadedAt: new Date().toISOString(),
+    };
+    toast("⏳ กำลังส่งสลิป...");
+
+    // Update order locally
+    const all = [...(S.sheetOrders || []), ...S.orders];
+    const o = all.find(x => x.po === po);
+    if (o) {
+      o.slip = slipData;
+      o.slipStatus = 'pending_verify';
+      o.updatedAt = new Date().toISOString();
+    }
+    // Sync copies in both stores
+    [S.orders, S.sheetOrders || []].forEach(list => {
+      const idx = list.findIndex(x => x.po === po);
+      if (idx >= 0) list[idx] = { ...list[idx], slip: slipData, slipStatus: 'pending_verify', updatedAt: new Date().toISOString() };
+    });
+    saveState();
+
+    // Push to Sheet
+    if (S.sheetApiUrl) {
+      try {
+        const res = await apiCall("uploadSlip", { po, slip: slipData }, true);
+        if (res && res.ok) toast("✅ ส่งสลิปสำเร็จ · แอดมินจะตรวจสอบให้ครับ");
+        else toast("⚠️ ส่งบน browser สำเร็จ แต่ push Sheet ล้มเหลว: " + (res.error||''));
+      } catch (e) {
+        toast("⚠️ Push Sheet ล้มเหลว: " + e.message + " (แต่บันทึกในเครื่องแล้ว)");
+      }
+    } else {
+      toast("✅ ส่งสลิปสำเร็จ (บันทึกใน browser)");
+    }
+
+    _slipDataUrl = null;
+    go('/order/' + po);
+  }
+
+  async function verifySlip(po, approve) {
+    if (approve && !confirm(`ยืนยันสลิปของ ${po}?\nสถานะจะเปลี่ยนเป็น "ได้รับชำระ" (paid)`)) return;
+    if (!approve && !confirm("ปฏิเสธสลิป? (ยังคงสถานะ pending_payment)")) return;
+    const all = [...(S.sheetOrders || []), ...S.orders];
+    const o = all.find(x => x.po === po);
+    if (!o) return;
+    if (approve) {
+      o.slipStatus = 'verified';
+      o.status = 'paid';
+      if (S.sheetApiUrl) await updateOrderStatusOnSheet(po, 'paid');
+    } else {
+      o.slipStatus = 'rejected';
+    }
+    o.updatedAt = new Date().toISOString();
+    // Sync in both stores
+    [S.orders, S.sheetOrders || []].forEach(list => {
+      const idx = list.findIndex(x => x.po === po);
+      if (idx >= 0) list[idx] = { ...list[idx], slipStatus: o.slipStatus, status: o.status, updatedAt: o.updatedAt };
+    });
+    // Push slip status
+    if (S.sheetApiUrl) await apiCall("updateSlipStatus", { po, slipStatus: o.slipStatus }, true).catch(()=>{});
+    saveState();
+    toast(approve ? "✅ ยืนยันสลิป · สถานะ paid" : "✕ ปฏิเสธสลิป");
+    render();
   }
 
   async function pushOrderToSheet(order) {
@@ -1310,6 +1503,7 @@
     else if (r === "/cart") content = viewCart();
     else if (r === "/checkout") content = viewCheckout();
     else if (r.startsWith("/success/")) content = viewOrderDetail(r.split("/")[2], true);
+    else if (r.startsWith("/upload-slip/")) content = viewUploadSlip(r.split("/")[2]);
     else if (r === "/orders") content = viewOrders();
     else if (r.startsWith("/order/")) content = viewOrderDetail(r.split("/")[2], false);
     else if (r === "/login") content = viewLogin();
@@ -1326,10 +1520,29 @@
     else if (r.startsWith("/admin/order/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminOrderDetail(r.split("/")[3]); }
     else if (r.startsWith("/admin/bill/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminBill(r.split("/")[3]); }
     else content = viewHome();
+    // Preserve focus + caret position across re-renders (fixes input focus loss)
+    const focused = document.activeElement;
+    const focusedId = focused && focused.id;
+    const isTextInput = focused && (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA");
+    const selStart = isTextInput ? focused.selectionStart : null;
+    const selEnd = isTextInput ? focused.selectionEnd : null;
+
     $("app").innerHTML = content;
     updateCatStrip(r);
     updateHeaderUser();
     updateAdminRibbon();
+    updateCartBadge(); // ensure header cart count is fresh
+
+    // Restore focus if same element still exists
+    if (focusedId) {
+      const el = document.getElementById(focusedId);
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
+        el.focus();
+        if (selStart !== null && typeof el.setSelectionRange === "function") {
+          try { el.setSelectionRange(selStart, selEnd); } catch (e) {}
+        }
+      }
+    }
   }
 
   function updateHeaderUser() {
@@ -2446,7 +2659,7 @@
   }
 
   async function testPushOrder() {
-    toast("⏳ กำลังทดสอบ push order ทดสอบ...");
+    toast("⏳ ทดสอบส่ง test order...");
     const testOrder = {
       po: "TEST-" + Date.now(),
       status: "pending_payment",
@@ -2456,11 +2669,13 @@
       customer: { name: "TEST CUSTOMER", phone: "0812345678", address: "ทดสอบ" },
       createdAt: new Date().toISOString(),
     };
-    const ok = await pushOrderToSheet(testOrder);
-    if (ok) {
-      toast(`✅ Push สำเร็จ · เช็ค Sheet tab "orders" → เห็น ${testOrder.po}`);
+    const res = await apiCall("createOrder", { data: testOrder }, true);
+    console.log("[testPushOrder] full response:", res);
+    if (res && res.ok) {
+      alert(`✅ สำเร็จ!\nPO: ${testOrder.po}\nไปเช็ค Google Sheet → tab "orders" → ควรเห็นแถวใหม่นี้`);
     } else {
-      toast(`❌ Push ล้มเหลว — เช็ค console (F12) หรือ redeploy Apps Script`);
+      const err = res && res.error ? res.error : 'unknown';
+      alert(`❌ ล้มเหลว\n\nError: ${err}\n\nสาเหตุน่าจะเป็น:\n1. Apps Script deployment เก่า → Redeploy version ใหม่\n2. Token ไม่ตรง\n3. URL Web App ผิด\n\nดู console (F12) → ดู log '[apiCall createOrder]' เพื่อดูรายละเอียด`);
     }
   }
 
@@ -2666,6 +2881,32 @@
               <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${o.carrierName || ''}</div>
             </div>` : (o.status === 'preparing' || o.status === 'paid') ? `<button class="btn btn-outline" onclick="addTrackingPrompt('${o.po}')">📦 ใส่หมายเลขติดตาม</button>` : ''}
           </div>
+
+          ${o.slip ? `
+          <div class="co-card" style="margin:0;border:2px solid ${o.slipStatus==='verified'?'var(--success)':'var(--gold)'}">
+            <h3 style="margin:0 0 14px;display:flex;align-items:center;gap:8px">
+              📸 สลิปโอนเงิน
+              <span style="background:${o.slipStatus==='verified'?'var(--success)':'var(--gold)'};color:${o.slipStatus==='verified'?'#fff':'#1a1a1a'};padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700">${o.slipStatus==='verified'?'✓ ยืนยันแล้ว':'⏳ รอตรวจ'}</span>
+            </h3>
+            ${o.slip.image?`<img src="${o.slip.image}" style="max-width:100%;max-height:400px;border-radius:8px;cursor:pointer;box-shadow:var(--shadow);margin-bottom:12px" onclick="window.open('${o.slip.image}','_blank')" title="คลิกดูรูปเต็ม">`:''}
+            <table class="pd-specs" style="font-size:13px">
+              <tr><td>วัน-เวลาที่โอน</td><td>${o.slip.date} ${o.slip.time}</td></tr>
+              <tr><td>ยอด</td><td class="mono">${money(o.slip.amount)}</td></tr>
+              <tr><td>ธนาคาร</td><td>${o.slip.bank||'-'}</td></tr>
+              ${o.slip.note?`<tr><td>หมายเหตุ</td><td>${o.slip.note}</td></tr>`:''}
+              <tr><td>อัพโหลดเมื่อ</td><td style="font-size:11px">${new Date(o.slip.uploadedAt).toLocaleString('th-TH')}</td></tr>
+            </table>
+            ${o.slipStatus!=='verified' ? `
+              <div style="display:flex;gap:10px;margin-top:12px">
+                <button class="btn btn-primary" style="flex:1" onclick="verifySlip('${o.po}',true)">✅ ยืนยันสลิป → paid</button>
+                <button class="btn btn-ghost" onclick="verifySlip('${o.po}',false)" style="color:#DC2626">✕ ปฏิเสธ</button>
+              </div>
+            ` : `
+              <div style="margin-top:8px;padding:8px 12px;background:var(--success-soft);border-radius:6px;font-size:12px;color:var(--success)">
+                ✓ ยืนยันแล้ว · order สถานะ paid
+              </div>
+            `}
+          </div>` : ''}
 
           <div class="co-card" style="margin:0">
             <h3 style="margin:0 0 12px">👤 ลูกค้า</h3>
@@ -3274,7 +3515,7 @@
   }
 
   function viewAdminEdit(pid) {
-    if (!S.adminAuth) { setTimeout(() => go('/admin'), 10); return ''; }
+    if (!isAdmin()) { setTimeout(() => go('/login'), 10); return ''; }
     const isNew = !pid;
     const existing = isNew ? null : EP.find(x => x.id === pid);
     if (!isNew && !existing) return `<div style="padding:40px;text-align:center">ไม่พบสินค้า</div>`;
@@ -3471,7 +3712,7 @@
     if (!o) {
       return `<div class="cart-empty"><div class="icon">🔍</div><div style="font-size:16px;color:var(--text)">ไม่พบคำสั่งซื้อ ${po}</div><button class="btn btn-primary" style="margin-top:16px" onclick="go('/')">← กลับหน้าแรก</button></div>`;
     }
-    const paymentLabel = { qr: "QR PromptPay", bank: "โอนธนาคาร", cod: "เก็บเงินปลายทาง (COD)", card: "บัตรเครดิต" }[o.payment];
+    const paymentLabel = ({ qr: "QR PromptPay", bank: "โอนธนาคาร", cod: "เก็บเงินปลายทาง (COD)", card: "บัตรเครดิต", cash: "💵 เงินสด", credit: "📝 เครดิต (ค้างชำระ)" }[o.payment]) || o.payment || '-';
     const st = STATUS_LABEL[o.status];
     const stIdx = statusIndex(o.status);
     const nextStatus = STATUS_FLOW[stIdx + 1];
@@ -3496,6 +3737,11 @@
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">🚚 หมายเลขติดตามพัสดุ (${o.carrierName})</div>
           <div class="mono" style="font-size:16px;font-weight:700;color:#7C3AED">${o.tracking}</div>
         </div>` : ''}
+        ${o.slip ? `<div style="margin-top:14px;padding:12px 16px;background:${o.slipStatus==='verified'?'var(--success-soft)':'#F9F5E5'};border:1px dashed ${o.slipStatus==='verified'?'var(--success)':'var(--gold)'};border-radius:8px;display:inline-block;text-align:left;max-width:300px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">📸 สลิปที่แจ้งโอน ${o.slipStatus==='verified'?'· ✓ ยืนยันแล้ว':'· ⏳ รอตรวจสอบ'}</div>
+          ${o.slip.image?`<img src="${o.slip.image}" style="max-width:100%;max-height:160px;border-radius:4px;cursor:pointer" onclick="window.open('${o.slip.image}','_blank')">`:''}
+          <div style="font-size:11px;margin-top:6px">${o.slip.date} ${o.slip.time} · ${o.slip.bank||''} · ${money(o.slip.amount)}</div>
+        </div>` : ''}
         ${isAdmin() && nextStatus && o.status !== 'cancelled' ? `
           <div style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--border)">
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">🔧 <b>Admin:</b> เปลี่ยนสถานะ</div>
@@ -3515,7 +3761,7 @@
           <div class="qr-amount">${money(o.total)}</div>
           <div class="qr-info">พร้อมเพย์ <b style="color:var(--text)">013-xxxxxx7</b></div>
           <div class="qr-timer">หมดเขต <b>29:47</b> นาที</div>
-          <button class="btn btn-primary btn-block btn-big" style="margin-top:16px" onclick="advanceOrder('${o.po}')">📸 แจ้งโอนแล้ว (แนบสลิป)</button>
+          <button class="btn btn-primary btn-block btn-big" style="margin-top:16px" onclick="go('/upload-slip/${o.po}')">📸 แจ้งโอนแล้ว (แนบสลิป) →</button>
         </div>
         ` : o.status === 'pending_payment' ? `
         <div class="qr-card" style="border-style:solid;border-color:var(--border)">
@@ -3529,7 +3775,7 @@
           <div class="sub" style="margin-bottom:14px">${paymentLabel} · ${money(o.total)}</div>
           <div style="text-align:left;font-size:12px;color:var(--text-muted);padding:12px;background:var(--surface);border-radius:6px">
             <div style="margin-bottom:8px"><b style="color:var(--text)">📍 จัดส่งไปที่</b></div>
-            <div style="line-height:1.6">${o.customer.name} · ${o.customer.phone}<br>${o.customer.address}</div>
+            <div style="line-height:1.6">${(o.customer||{}).name||'-'} · ${(o.customer||{}).phone||'-'}<br>${(o.customer||{}).address||'-'}</div>
           </div>
         </div>
         `}
@@ -3571,8 +3817,9 @@
           <div class="co-card" style="margin:0">
             <h3 style="margin-bottom:8px">รายการสินค้า (${o.items.length})</h3>
             ${o.items.map(item => {
-              const p = EP.find(x => x.id === item.pid);
-              return `<div class="ord-line"><div class="th">${p.icon}</div><div class="nm">${p.name}<div class="sub">×${item.qty}${item.size?' · '+item.size:''}</div></div><div class="mono">${money(priceOf(p, item.qty)*item.qty)}</div></div>`;
+              const p = EP.find(x => x.id === item.pid) || { icon: '📦', name: item.pid };
+              const each = item.priceEach !== undefined ? item.priceEach : priceOf(p, item.qty);
+              return `<div class="ord-line"><div class="th">${p.icon}</div><div class="nm">${p.name}<div class="sub">×${item.qty}${item.size?' · '+item.size:''}</div></div><div class="mono">${money(each * item.qty)}</div></div>`;
             }).join("")}
             <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
               <div class="summ-row"><span>ยอดรวม</span><span class="mono">${money(o.subtotal)}</span></div>
