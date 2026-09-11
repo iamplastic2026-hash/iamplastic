@@ -1018,6 +1018,7 @@
     sheetProducts: safeGet("iamplastic.sheetProducts", null),
     sheetOrders: safeGet("iamplastic.sheetOrders", null),
     sheetBills: safeGet("iamplastic.sheetBills", { cash: [], tax: [] }),
+    sheetCustomers: safeGet("iamplastic.sheetCustomers", null),
     sheetLastSync: safeGet("iamplastic.sheetLastSync", 0),
     autoSync: safeGet("iamplastic.autoSync", true),
     // Auth
@@ -1064,6 +1065,7 @@
     safeSet("iamplastic.sheetProducts", S.sheetProducts);
     safeSet("iamplastic.sheetOrders", S.sheetOrders);
     safeSet("iamplastic.sheetBills", S.sheetBills);
+    safeSet("iamplastic.sheetCustomers", S.sheetCustomers);
     safeSet("iamplastic.sheetLastSync", S.sheetLastSync);
     safeSet("iamplastic.autoSync", S.autoSync);
     safeSet("iamplastic.user", S.user);
@@ -1519,6 +1521,7 @@
     else if (r === "/admin/new") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminEdit(null); }
     else if (r === "/admin/orders") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminOrders(); }
     else if (r === "/admin/bills") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminBills(); }
+    else if (r === "/admin/customers") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminCustomers(); }
     else if (r === "/admin/create-bill") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminCreateBill(); }
     else if (r.startsWith("/admin/order/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminOrderDetail(r.split("/")[3]); }
     else if (r.startsWith("/admin/bill/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminBill(r.split("/")[3]); }
@@ -1612,6 +1615,7 @@
         <a onclick="go('/admin/products')">สินค้า (${EP.length})</a>
         <a onclick="go('/admin/orders')">📋 PO (${(S.sheetOrders||S.orders||[]).length})</a>
         <a onclick="go('/admin/bills')">🧾 บิล (${((S.sheetBills||{}).cash||[]).length + ((S.sheetBills||{}).tax||[]).length})</a>
+        <a onclick="go('/admin/customers')">👥 ลูกค้า (${(S.sheetCustomers||S.registeredUsers||[]).length})</a>
         <a onclick="go('/admin/create-bill')" style="background:rgba(0,0,0,.12);padding:3px 8px;border-radius:4px">➕ เปิดบิลใหม่</a>
         <a onclick="go('/admin/new')">➕ เพิ่มสินค้า</a>
         <span style="margin-left:auto;opacity:.75;font-size:11px">${S.user.name || 'Admin'}</span>
@@ -2602,11 +2606,46 @@
 
   async function pushCustomerToSheet(customer) {
     try {
-      await apiCall("registerCustomer", { data: customer }, true);
-      return true;
+      const res = await apiCall("registerCustomer", { data: customer }, true);
+      return !!(res && res.ok);
     } catch (e) {
       console.error("pushCustomerToSheet:", e);
       return false;
+    }
+  }
+
+  async function pullCustomersFromSheet() {
+    if (!S.sheetApiUrl) { toast("ยังไม่เชื่อม Sheet"); return false; }
+    try {
+      const res = await apiCall("customers");
+      if (!res.ok) throw new Error(res.error);
+      S.sheetCustomers = res.customers || [];
+      saveState();
+      toast(`↓ โหลด ${S.sheetCustomers.length} ลูกค้าจาก Sheet ✓`);
+      return true;
+    } catch (e) {
+      toast("❌ โหลดลูกค้าไม่ได้: " + e.message);
+      return false;
+    }
+  }
+
+  async function pushAllCustomersToSheet() {
+    if (!S.sheetApiUrl) { toast("ยังไม่เชื่อม Sheet"); return; }
+    const users = S.registeredUsers || [];
+    if (users.length === 0) { toast("ยังไม่มีลูกค้า register"); return; }
+    if (!confirm(`ส่งข้อมูลลูกค้า ${users.length} คนขึ้น Sheet (upsert)?`)) return;
+    // ตัด password ออกก่อนส่ง (ไม่ควรเก็บ password ใน Sheet)
+    const clean = users.map(u => { const { password, ...rest } = u; return rest; });
+    try {
+      const res = await apiCall("bulkUpsertCustomers", { data: clean }, true);
+      if (res && res.ok) {
+        toast(`✓ ส่ง ${res.count} ลูกค้าขึ้น Sheet แล้ว`);
+        pullCustomersFromSheet().then(()=>render());
+      } else {
+        toast("❌ ส่งไม่สำเร็จ: " + ((res && res.error) || ''));
+      }
+    } catch (e) {
+      toast("❌ ส่งไม่สำเร็จ: " + e.message);
     }
   }
   function loginAsAdmin() {
@@ -2851,6 +2890,68 @@
                 </td>
               </tr>`;
             }).join('')}
+          </tbody>
+        </table>
+      </div>`}
+    `;
+  }
+
+  function viewAdminCustomers() {
+    if (S.sheetApiUrl && (Date.now() - (S.sheetCustLastSync||0)) > 10000) {
+      pullCustomersFromSheet().then(() => { S.sheetCustLastSync = Date.now(); render(); }).catch(()=>{});
+    }
+    const q = (S.custSearch || '').toLowerCase();
+    const source = S.sheetCustomers || S.registeredUsers || [];
+    const list = source.filter(u => {
+      if (!q) return true;
+      return (u.name||'').toLowerCase().includes(q) ||
+             (u.phone||'').includes(q) ||
+             (u.email||'').toLowerCase().includes(q) ||
+             (u.company||'').toLowerCase().includes(q) ||
+             (u.taxId||'').includes(q);
+    }).sort((a,b) => new Date(b.registeredAt||0) - new Date(a.registeredAt||0));
+    const localOnly = (S.registeredUsers || []).filter(u => {
+      const sheet = S.sheetCustomers || [];
+      return !sheet.find(s => (s.phone && s.phone === u.phone) || (s.email && s.email === u.email));
+    });
+    return `
+      ${adminPageHeader('ลูกค้า (Customers)', '👥', `
+        <button class="btn btn-primary" onclick="pushAllCustomersToSheet()">↑ ส่งขึ้น Sheet (${(S.registeredUsers||[]).length})</button>
+        <button class="btn btn-outline" onclick="pullCustomersFromSheet().then(()=>render())">🔄 Refresh</button>
+      `)}
+      <div style="background:#e6f4ff;border:1px solid #91caff;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#003a75">
+        💡 ลูกค้าที่สมัครจะ auto ขึ้น tab <b>customers</b> ของ Sheet · ถ้าเห็นน้อยกว่าจริง กด "↑ ส่งขึ้น Sheet" เพื่อ backfill · <b>ไม่เก็บ password</b> ใน Sheet
+      </div>
+      ${localOnly.length > 0 ? `<div style="background:#fff3cd;border:1px solid #ffc107;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#7a5a00">
+        ⚠️ มี ${localOnly.length} ลูกค้าใน browser นี้ที่ยังไม่ได้ขึ้น Sheet — กดปุ่ม "↑ ส่งขึ้น Sheet" มุมขวาบน
+      </div>` : ''}
+      <div style="margin-bottom:12px">
+        <input type="text" id="cust-search" placeholder="🔍 ค้นชื่อ / เบอร์ / อีเมล / บริษัท / Tax ID"
+          value="${q.replace(/"/g,'&quot;')}"
+          oninput="S.custSearch=this.value; render()"
+          style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+      </div>
+      ${list.length === 0 ? `<div class="cart-empty"><div class="icon">👥</div><div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px">ยังไม่มีลูกค้า</div><div style="font-size:13px">พอมีคนสมัครสมาชิก จะโผล่ที่นี่</div></div>` : `
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead><tr><th>ลูกค้า</th><th>ติดต่อ</th><th>ประเภท</th><th>ที่อยู่</th><th>สมัคร</th></tr></thead>
+          <tbody>
+            ${list.map(u => `<tr>
+              <td>
+                <div style="font-weight:700">${u.name || ((u.firstName||'')+' '+(u.lastName||''))}</div>
+                ${u.isCorporate ? `<div style="font-size:11px;color:var(--gold);font-weight:600">🏢 ${u.company||'-'}</div>` : ''}
+                ${u.taxId ? `<div class="mono" style="font-size:11px;color:var(--text-muted)">Tax: ${u.taxId}</div>` : ''}
+              </td>
+              <td style="font-size:12px">
+                <div>📞 ${u.phone || '-'}</div>
+                <div style="color:var(--text-muted)">✉ ${u.email || '-'}</div>
+              </td>
+              <td>
+                ${u.isCorporate ? '<span style="background:var(--gold);color:#1a1a1a;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600">🏢 นิติบุคคล</span>' : '<span style="background:#e0e0e0;color:#333;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600">👤 บุคคล</span>'}
+              </td>
+              <td style="font-size:12px;max-width:280px">${u.address || '-'}</td>
+              <td style="font-size:11px;color:var(--text-muted)">${u.registeredAt ? new Date(u.registeredAt).toLocaleDateString('th-TH') : '-'}</td>
+            </tr>`).join('')}
           </tbody>
         </table>
       </div>`}
