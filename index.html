@@ -1,12 +1,15 @@
-<title>iamplastic — บรรจุภัณฑ์พลาสติกครบวงจร</title>
+<title>THE FOOD BOX ASIA — บรรจุภัณฑ์อาหารครบวงจร</title>
+<link rel="icon" href="./logo.jpg" type="image/jpeg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 <style>
   :root {
-    --brand: #EE4D2D;
-    --brand-dark: #D73A1B;
-    --brand-soft: #FDECE7;
+    --brand: #AB2739;             /* Muted crimson — matched to logo ASIA badge */
+    --brand-dark: #7A1929;
+    --brand-soft: #F7E3E7;
+    --ink: #1A1A1A;               /* Black — เข้ากับโลโก้ */
+    --ink-soft: #2A2A2A;
     --wholesale: #0B6B5B;
     --wholesale-soft: #E5F2EF;
     --gold: #F2B707;
@@ -21,13 +24,15 @@
     --text-faint: #9A907E;
     --border: #E7E1D3;
     --shadow: 0 1px 2px rgba(15,20,32,.05), 0 4px 12px rgba(15,20,32,.06);
-    --shadow-lift: 0 4px 16px rgba(238,77,45,.14);
+    --shadow-lift: 0 4px 16px rgba(171,39,57,.18);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --brand: #FF6742;
-      --brand-dark: #EE4D2D;
-      --brand-soft: #3A1E14;
+      --brand: #E63F5A;
+      --brand-dark: #AB2739;
+      --brand-soft: #3A1418;
+      --ink: #F5F5F5;
+      --ink-soft: #E0E0E0;
       --wholesale: #2FA88F;
       --wholesale-soft: #14322C;
       --gold: #F7C63B;
@@ -46,9 +51,11 @@
     }
   }
   :root[data-theme="dark"] {
-    --brand: #FF6742;
-    --brand-dark: #EE4D2D;
-    --brand-soft: #3A1E14;
+    --brand: #C94456;
+    --brand-dark: #AB2739;
+    --brand-soft: #3A181C;
+    --ink: #F5F5F5;
+    --ink-soft: #E0E0E0;
     --wholesale: #2FA88F;
     --wholesale-soft: #14322C;
     --gold: #F7C63B;
@@ -946,11 +953,11 @@
 
 <header class="header">
   <div class="header-inner">
-    <a class="logo" onclick="go('/')">
-      <span class="logo-mark">iP</span>
+    <a class="logo" onclick="go('/')" style="align-items:center">
+      <img src="./logo.jpg" alt="THE FOOD BOX ASIA" style="width:52px;height:52px;border-radius:10px;object-fit:cover;box-shadow:0 2px 6px rgba(0,0,0,.15)">
       <span>
-        iam<span style="opacity:.85">plastic</span>
-        <small>บรรจุภัณฑ์พลาสติก · 271 SKU</small>
+        <b style="font-weight:900;letter-spacing:.5px">THE FOOD BOX</b> <span style="background:var(--brand);color:#fff;padding:1px 8px;border-radius:4px;font-size:12px;font-weight:800;letter-spacing:1px">ASIA</span>
+        <small>บรรจุภัณฑ์อาหาร · 271 SKU</small>
       </span>
     </a>
     <div>
@@ -984,9 +991,16 @@
   <a onclick="go('/')"><span class="icon">🏠</span>หน้าแรก</a>
   <a><span class="icon">🔍</span>ค้นหา</a>
   <a onclick="go('/cart')"><span class="icon">🛒</span>ตะกร้า<span id="cart-badge" class="badge" style="display:none">0</span></a>
+  <a onclick="go('/account/wishlist')"><span class="icon">❤️</span>โปรด</a>
   <a onclick="go('/orders')"><span class="icon">📋</span>คำสั่งซื้อ</a>
   <a><span class="icon">👤</span>ฉัน</a>
 </nav>
+
+<!-- Floating contact FAB stack -->
+<div id="fab-stack" style="position:fixed;right:12px;bottom:80px;z-index:900;display:flex;flex-direction:column;gap:10px;align-items:flex-end;pointer-events:none">
+  <div id="fab-items" style="display:flex;flex-direction:column;gap:10px;pointer-events:auto;transition:all .3s;transform:translateY(20px);opacity:0" hidden></div>
+  <button id="fab-toggle" onclick="toggleFab()" title="ติดต่อเรา" style="pointer-events:auto;width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;background:linear-gradient(135deg,#AB2739,#7A1929);color:#fff;font-size:22px;box-shadow:0 4px 14px rgba(171,39,57,.5)">💬</button>
+</div>
 
 <div id="toast"></div>
 
@@ -1019,6 +1033,31 @@
     sheetOrders: safeGet("iamplastic.sheetOrders", null),
     sheetBills: safeGet("iamplastic.sheetBills", { cash: [], tax: [] }),
     sheetCustomers: safeGet("iamplastic.sheetCustomers", null),
+    // Shop settings
+    promptPayId: safeGet("iamplastic.promptPayId", "0812345678"),
+    shopName: safeGet("iamplastic.shopName", "THE FOOD BOX ASIA"),
+    shopAddress: safeGet("iamplastic.shopAddress", "กรุงเทพฯ"),
+    shopPhone: safeGet("iamplastic.shopPhone", "081-234-5678"),
+    slipokApiKey: safeGet("iamplastic.slipokApiKey", ""),
+    slipokBranchId: safeGet("iamplastic.slipokBranchId", ""),
+    cloudinaryCloud: safeGet("iamplastic.cloudinaryCloud", ""),
+    cloudinaryPreset: safeGet("iamplastic.cloudinaryPreset", ""),
+    gaTagId: safeGet("iamplastic.gaTagId", ""),
+    liffId: safeGet("iamplastic.liffId", ""),
+    lineProfile: safeGet("iamplastic.lineProfile", null),
+    // Social / contact
+    lineOA: safeGet("iamplastic.lineOA", "https://line.me/R/ti/p/@iamplastic"),
+    messengerUrl: safeGet("iamplastic.messengerUrl", "https://m.me/iamplasticPage"),
+    tiktokUrl: safeGet("iamplastic.tiktokUrl", "https://tiktok.com/@iamplastic.thailand"),
+    youtubeUrl: safeGet("iamplastic.youtubeUrl", ""),
+    contactEmail: safeGet("iamplastic.contactEmail", "iamplastic@hotmail.com"),
+    // Promos
+    tiktokVideos: safeGet("iamplastic.tiktokVideos", []),
+    banners: safeGet("iamplastic.banners", []),
+    fabOpen: false,
+    wishlist: safeGet("iamplastic.wishlist", []),
+    sheetCoupons: safeGet("iamplastic.sheetCoupons", []),
+    sheetReviews: safeGet("iamplastic.sheetReviews", null),
     sheetLastSync: safeGet("iamplastic.sheetLastSync", 0),
     autoSync: safeGet("iamplastic.autoSync", true),
     // Auth
@@ -1050,6 +1089,43 @@
     coAddressId: null, // ที่อยู่ที่เลือกในหน้า checkout
   };
   function safeGet(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
+  function esc(s) { return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  // Floating contact FAB
+  function toggleFab() {
+    const el = document.getElementById('fab-items');
+    const btn = document.getElementById('fab-toggle');
+    if (!el) return;
+    S.fabOpen = !S.fabOpen;
+    if (S.fabOpen) {
+      renderFabItems();
+      el.hidden = false;
+      requestAnimationFrame(() => { el.style.transform='translateY(0)'; el.style.opacity='1'; });
+      btn.innerHTML = '✕'; btn.style.background='#666';
+    } else {
+      el.style.transform='translateY(20px)'; el.style.opacity='0';
+      setTimeout(()=>{ el.hidden = true; }, 300);
+      btn.innerHTML = '💬'; btn.style.background='linear-gradient(135deg,#AB2739,#7A1929)';
+    }
+  }
+  function renderFabItems() {
+    const el = document.getElementById('fab-items'); if (!el) return;
+    const item = (bg, url, icon, label) => url ? `
+      <a href="${esc(url)}" target="_blank" rel="noopener" title="${esc(label)}" style="
+        display:flex;align-items:center;gap:8px;background:${bg};color:#fff;
+        padding:0 14px 0 12px;height:44px;border-radius:22px;text-decoration:none;
+        font-size:13px;font-weight:600;box-shadow:0 3px 10px rgba(0,0,0,.2);white-space:nowrap
+      "><span style="font-size:20px">${icon}</span>${label}</a>
+    ` : '';
+    el.innerHTML = `
+      ${item('#06C755', S.lineOA, '💚', 'LINE OA')}
+      ${item('#0084FF', S.messengerUrl, '📘', 'Messenger')}
+      ${item('#000', S.tiktokUrl, '🎵', 'TikTok')}
+      ${item('#FF0000', S.youtubeUrl, '▶️', 'YouTube')}
+      ${item('#AB2739', 'tel:'+(S.shopPhone||''), '📞', 'โทรเลย')}
+      ${item('#DC2626', 'mailto:'+(S.contactEmail||''), '✉️', 'อีเมล')}
+    `;
+  }
   function safeSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
   function saveState() {
     safeSet("iamplastic.mode", S.mode);
@@ -1066,6 +1142,27 @@
     safeSet("iamplastic.sheetOrders", S.sheetOrders);
     safeSet("iamplastic.sheetBills", S.sheetBills);
     safeSet("iamplastic.sheetCustomers", S.sheetCustomers);
+    safeSet("iamplastic.promptPayId", S.promptPayId);
+    safeSet("iamplastic.shopName", S.shopName);
+    safeSet("iamplastic.shopAddress", S.shopAddress);
+    safeSet("iamplastic.shopPhone", S.shopPhone);
+    safeSet("iamplastic.slipokApiKey", S.slipokApiKey);
+    safeSet("iamplastic.slipokBranchId", S.slipokBranchId);
+    safeSet("iamplastic.cloudinaryCloud", S.cloudinaryCloud);
+    safeSet("iamplastic.cloudinaryPreset", S.cloudinaryPreset);
+    safeSet("iamplastic.gaTagId", S.gaTagId);
+    safeSet("iamplastic.liffId", S.liffId);
+    safeSet("iamplastic.lineProfile", S.lineProfile);
+    safeSet("iamplastic.lineOA", S.lineOA);
+    safeSet("iamplastic.messengerUrl", S.messengerUrl);
+    safeSet("iamplastic.tiktokUrl", S.tiktokUrl);
+    safeSet("iamplastic.youtubeUrl", S.youtubeUrl);
+    safeSet("iamplastic.contactEmail", S.contactEmail);
+    safeSet("iamplastic.tiktokVideos", S.tiktokVideos);
+    safeSet("iamplastic.banners", S.banners);
+    safeSet("iamplastic.wishlist", S.wishlist);
+    safeSet("iamplastic.sheetCoupons", S.sheetCoupons);
+    safeSet("iamplastic.sheetReviews", S.sheetReviews);
     safeSet("iamplastic.sheetLastSync", S.sheetLastSync);
     safeSet("iamplastic.autoSync", S.autoSync);
     safeSet("iamplastic.user", S.user);
@@ -1314,10 +1411,32 @@
     if (S.sheetApiUrl) {
       try {
         const res = await apiCall("uploadSlip", { po, slip: slipData }, true);
-        if (res && res.ok) toast("✅ ส่งสลิปสำเร็จ · แอดมินจะตรวจสอบให้ครับ");
+        if (res && res.ok) toast("✅ ส่งสลิปสำเร็จ · กำลังตรวจ...");
         else toast("⚠️ ส่งบน browser สำเร็จ แต่ push Sheet ล้มเหลว: " + (res.error||''));
       } catch (e) {
         toast("⚠️ Push Sheet ล้มเหลว: " + e.message + " (แต่บันทึกในเครื่องแล้ว)");
+      }
+      // Auto-verify ผ่าน SlipOK (ถ้ามี API key)
+      if (S.slipokApiKey && S.slipokBranchId) {
+        try {
+          const raw = _slipDataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
+          const vres = await apiCall("verifySlip", {
+            slipBase64: raw, expectedAmount: o ? o.total : 0,
+            slipokApiKey: S.slipokApiKey, slipokBranchId: S.slipokBranchId,
+          }, true);
+          if (vres && vres.ok && vres.result && vres.result.ok) {
+            // Auto-verify
+            [S.orders, S.sheetOrders || []].forEach(list => {
+              const idx = list.findIndex(x => x.po === po);
+              if (idx >= 0) { list[idx].slipStatus = 'verified'; list[idx].status = 'paid'; }
+            });
+            saveState();
+            if (S.sheetApiUrl) await updateOrderStatusOnSheet(po, 'paid');
+            toast("✅ ตรวจสลิปอัตโนมัติผ่าน → สถานะ paid");
+          } else {
+            toast("⏳ ส่งสลิปแล้ว · SlipOK ตรวจไม่ผ่าน → รอ admin");
+          }
+        } catch (e) { console.error("SlipOK err:", e); }
       }
     } else {
       toast("✅ ส่งสลิปสำเร็จ (บันทึกใน browser)");
@@ -1406,7 +1525,7 @@
   // UTILITIES
   // =======================================================
   const $ = (id) => document.getElementById(id);
-  const money = (n) => "฿" + Number(n).toLocaleString("th-TH", { minimumFractionDigits: (n%1)?2:0, maximumFractionDigits: 2 });
+  const money = (n) => { const v = Number(n)||0; return "฿" + v.toLocaleString("th-TH", { minimumFractionDigits: (v%1)?2:0, maximumFractionDigits: 2 }); };
   const priceOf = (p, qty = 1) => {
     if (S.mode === "wholesale") {
       const tier = p.tiers.find(t => qty >= t[0] && qty <= t[1]);
@@ -1421,8 +1540,25 @@
       return s + priceOf(p, i.qty) * i.qty;
     }, 0);
   }
+  function findCoupon(code) {
+    const list = S.sheetCoupons || [];
+    const found = list.find(c => c && c.code && c.code.toUpperCase() === (code||'').toUpperCase() && c.active);
+    if (found) {
+      if (found.expiresAt && new Date(found.expiresAt) < new Date()) return null;
+      if (found.maxUses > 0 && found.used >= found.maxUses) return null;
+      return found;
+    }
+    // fallback hardcoded
+    if ((code||'').toUpperCase() === "NEW100") return { code:"NEW100", kind:"amount", value:100, minTotal:800 };
+    return null;
+  }
   function couponDiscount() {
-    return S.coupon === "NEW100" ? 100 : 0;
+    const c = findCoupon(S.coupon);
+    if (!c) return 0;
+    const sub = cartSubtotal();
+    if (c.minTotal && sub < c.minTotal) return 0;
+    if (c.kind === "percent") return Math.floor(sub * (c.value/100));
+    return Math.min(c.value, sub);
   }
   function cartTotal() {
     return Math.max(0, cartSubtotal() - couponDiscount());
@@ -1431,6 +1567,74 @@
     if (cartSubtotal() >= 1500) return 0;
     return S.coShipping === "flash" ? 55 : (S.coShipping === "pickup" ? 0 : 0);
   }
+  // CSV Export
+  function exportCsv(filename, rows) {
+    if (!rows || !rows.length) { toast("ไม่มีข้อมูลให้ export"); return; }
+    const cols = Object.keys(rows[0]);
+    const esc = v => { const s = v==null?'':String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
+    const lines = [cols.join(','), ...rows.map(r => cols.map(c => esc(r[c])).join(','))];
+    const bom = '﻿'; // UTF-8 BOM สำหรับ Excel
+    const csv = bom + lines.join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(()=>URL.revokeObjectURL(url), 1000);
+      toast(`📥 export: ${filename}`);
+    } catch (e) {
+      // iOS Safari fallback — เปิด tab ใหม่
+      const dataUrl = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+      window.open(dataUrl, '_blank');
+      toast("📥 เปิด tab ใหม่ — save-as เพื่อ download");
+    }
+  }
+
+  function exportOrdersCsv() {
+    const rows = (S.sheetOrders || S.orders || []).map(o => ({
+      po: o.po, status: o.status, total: o.total, subtotal: o.subtotal,
+      discount: o.discount, shipping: o.shipping,
+      payment: o.payment, tax_invoice: o.taxInvoice,
+      customer_name: (o.customer||{}).name, customer_phone: (o.customer||{}).phone,
+      customer_address: (o.customer||{}).address,
+      tracking: o.tracking||'', shipping_method: o.shippingMethod||'',
+      items_count: (o.items||[]).length,
+      items_summary: (o.items||[]).map(i=>`${i.pid}x${i.qty}`).join(';'),
+      created_at: o.createdAt, updated_at: o.updatedAt,
+    }));
+    exportCsv(`orders_${new Date().toISOString().slice(0,10)}.csv`, rows);
+  }
+
+  function exportBillsCsv(type) {
+    const list = ((S.sheetBills||{})[type]||[]);
+    const rows = list.map(b => ({
+      bl: b.bl||b.po, status: b.status, total: b.total,
+      subtotal: b.subtotal, discount: b.discount, shipping: b.shipping,
+      payment: b.payment, tax_invoice: b.taxInvoice,
+      customer_name: (b.customer||{}).name, customer_phone: (b.customer||{}).phone,
+      customer_company: (b.customer||{}).company, customer_tax_id: (b.customer||{}).taxId,
+      customer_address: (b.customer||{}).address,
+      items_summary: (b.items||[]).map(i=>`${i.pid}x${i.qty}@${i.priceEach}`).join(';'),
+      created_at: b.createdAt, note: b.note||'',
+    }));
+    exportCsv(`bills_${type}_${new Date().toISOString().slice(0,10)}.csv`, rows);
+  }
+
+  function exportCustomersCsv() {
+    const list = S.sheetCustomers || S.registeredUsers || [];
+    const rows = list.map(u => ({
+      name: u.name, first_name: u.firstName||'', last_name: u.lastName||'',
+      phone: u.phone||'', email: u.email||'',
+      address: u.address||'', province: u.prov||'', zip: u.zip||'',
+      is_corporate: !!u.isCorporate, company: u.company||'',
+      tax_id: u.taxId||'', branch: u.branch||'',
+      orders_count: u.ordersCount||0, total_spent: u.totalSpent||0,
+      registered_at: u.registeredAt||'',
+    }));
+    exportCsv(`customers_${new Date().toISOString().slice(0,10)}.csv`, rows);
+  }
+
   function toast(msg) {
     const t = $("toast"); t.textContent = msg; t.classList.add("on");
     clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("on"), 1900);
@@ -1481,7 +1685,13 @@
     location.hash = "#" + path;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
-  window.addEventListener("hashchange", render);
+  window.addEventListener("hashchange", () => {
+    render();
+    // GA4 page_view สำหรับ SPA hash routes
+    if (window.gtag && S.gaTagId) {
+      gtag('event', 'page_view', { page_path: location.hash || '/', page_title: document.title });
+    }
+  });
   window.addEventListener("load", () => {
     document.body.dataset.mode = S.mode;
     updateCartBadge();
@@ -1489,6 +1699,22 @@
     render();
     // Auto-load latest data from Sheet in background (if configured)
     autoLoadFromSheet();
+    // LIFF init (ถ้าตั้งค่า)
+    if (S.liffId) {
+      const liffScript = document.createElement('script');
+      liffScript.src = 'https://static.line-scdn.net/liff/edge/2/sdk.js';
+      liffScript.onload = () => initLIFF();
+      document.head.appendChild(liffScript);
+    }
+    // GA4 inject (ถ้าตั้งค่า)
+    if (S.gaTagId && S.gaTagId.startsWith('G-')) {
+      const s = document.createElement('script');
+      s.async = true; s.src = `https://www.googletagmanager.com/gtag/js?id=${S.gaTagId}`;
+      document.head.appendChild(s);
+      window.dataLayer = window.dataLayer || [];
+      window.gtag = function(){ dataLayer.push(arguments); };
+      gtag('js', new Date()); gtag('config', S.gaTagId);
+    }
   });
 
   function currentRoute() {
@@ -1522,6 +1748,13 @@
     else if (r === "/admin/orders") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminOrders(); }
     else if (r === "/admin/bills") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminBills(); }
     else if (r === "/admin/customers") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminCustomers(); }
+    else if (r.startsWith("/admin/customer/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminCustomerDetail(decodeURIComponent(r.split("/")[3] || '')); }
+    else if (r === "/admin/coupons") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminCoupons(); }
+    else if (r === "/admin/settings") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminSettings(); }
+    else if (r === "/admin/promos") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminPromos(); }
+    else if (r.startsWith("/admin/label/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminLabel(r.split("/")[3]); }
+    else if (r === "/account/profile") content = viewAccountProfile();
+    else if (r === "/account/wishlist") content = viewWishlist();
     else if (r === "/admin/create-bill") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminCreateBill(); }
     else if (r.startsWith("/admin/order/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminOrderDetail(r.split("/")[3]); }
     else if (r.startsWith("/admin/bill/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminBill(r.split("/")[3]); }
@@ -1561,7 +1794,7 @@
       const initials = u.name ? u.name.slice(0, 2).toUpperCase() : (u.role === 'admin' ? 'AD' : 'ME');
       el.innerHTML = `
         <div class="user-menu">
-          <div class="avatar${isAdmin() ? ' admin' : ''}" onclick="toggleUserDropdown()" title="${u.name || u.role}">${initials}</div>
+          <div class="avatar${isAdmin() ? ' admin' : ''}" onclick="toggleUserDropdown()" title="${esc(u.name || u.role)}" style="${u.pictureUrl?'background-image:url('+esc(u.pictureUrl)+');background-size:cover;background-position:center;color:transparent':''}">${u.pictureUrl?'':initials}</div>
           <div class="user-dropdown" id="user-dropdown">
             <div class="ud-header">
               <div class="ud-name">${u.name || (isAdmin()?'Admin':'ลูกค้า')}</div>
@@ -1573,10 +1806,15 @@
               <a class="ud-item" onclick="hideDropdown();go('/admin/orders')">📋 จัดการคำสั่งซื้อ</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/create-bill')">🧾 เปิดบิลใหม่ (Manual)</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/new')">➕ เพิ่มสินค้าใหม่</a>
+              <a class="ud-item" onclick="hideDropdown();go('/admin/customers')">👥 ลูกค้า</a>
+              <a class="ud-item" onclick="hideDropdown();go('/admin/coupons')">🎁 คูปอง</a>
+              <a class="ud-item" onclick="hideDropdown();go('/admin/settings')">⚙️ ตั้งค่าร้าน</a>
               <div class="ud-divider"></div>
             ` : ''}
             <a class="ud-item" onclick="hideDropdown();go('/orders')">📋 คำสั่งซื้อของฉัน</a>
+            <a class="ud-item" onclick="hideDropdown();go('/account/profile')">👤 โปรไฟล์</a>
             <a class="ud-item" onclick="hideDropdown();go('/account/addresses')">📍 ที่อยู่ของฉัน</a>
+            <a class="ud-item" onclick="hideDropdown();go('/account/wishlist')">❤️ รายการโปรด (${(S.wishlist||[]).length})</a>
             <a class="ud-item" onclick="hideDropdown();go('/cart')">🛒 ตะกร้าสินค้า</a>
             <div class="ud-divider"></div>
             <a class="ud-item" onclick="doLogout()">🔓 ออกจากระบบ</a>
@@ -1616,6 +1854,9 @@
         <a onclick="go('/admin/orders')">📋 PO (${(S.sheetOrders||S.orders||[]).length})</a>
         <a onclick="go('/admin/bills')">🧾 บิล (${((S.sheetBills||{}).cash||[]).length + ((S.sheetBills||{}).tax||[]).length})</a>
         <a onclick="go('/admin/customers')">👥 ลูกค้า (${(S.sheetCustomers||S.registeredUsers||[]).length})</a>
+        <a onclick="go('/admin/coupons')">🎁 คูปอง (${(S.sheetCoupons||[]).length})</a>
+        <a onclick="go('/admin/promos')">📢 โปรโมชั่น</a>
+        <a onclick="go('/admin/settings')">⚙️ ตั้งค่า</a>
         <a onclick="go('/admin/create-bill')" style="background:rgba(0,0,0,.12);padding:3px 8px;border-radius:4px">➕ เปิดบิลใหม่</a>
         <a onclick="go('/admin/new')">➕ เพิ่มสินค้า</a>
         <span style="margin-left:auto;opacity:.75;font-size:11px">${S.user.name || 'Admin'}</span>
@@ -1665,6 +1906,10 @@
         <div class="card-icon-fallback" ${p.cover ? 'style="display:none"' : ''}>${p.icon}</div>
         <div class="badge-disc">-${p.discount}%</div>
         ${p.mall ? `<div class="badge-mall">iamplastic</div>` : ""}
+        <button class="wish-btn" onclick="event.stopPropagation();toggleWishlist('${p.id}')" title="รายการโปรด"
+          style="position:absolute;top:6px;right:6px;background:rgba(255,255,255,.92);border:none;width:32px;height:32px;border-radius:50%;font-size:16px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.15)">
+          ${isInWishlist(p.id) ? '❤️' : '🤍'}
+        </button>
       </div>
       <div class="card-body">
         <div class="card-name">${p.name}</div>
@@ -1698,6 +1943,65 @@
     setTimeout(() => go('/cart'), 250);
   }
 
+  // Promo banner rotator (แบบ Shopee iPhone 18)
+  function renderPromoBanner() {
+    const banners = S.banners || [];
+    if (banners.length === 0) return '';
+    const b = banners[0]; // แสดงตัวแรก (rotator ทำต่อได้)
+    return `
+      <section style="margin:16px 0;position:relative;border-radius:14px;overflow:hidden;box-shadow:var(--shadow);cursor:pointer" onclick="${b.link?`window.open('${esc(b.link)}','_blank')`:''}">
+        ${b.image ? `<img src="${esc(b.image)}" alt="${esc(b.title||'')}" style="width:100%;display:block;object-fit:cover">` : `
+          <div style="background:linear-gradient(135deg,${b.color1||'#EE4D2D'},${b.color2||'#ff6b3d'});padding:32px 24px;color:#fff">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap">
+              <div style="flex:1;min-width:200px">
+                <div style="font-size:11px;opacity:.9;font-weight:700;letter-spacing:.08em">${esc((b.eyebrow||'PROMO').toUpperCase())}</div>
+                <h2 style="margin:8px 0;font-size:28px;font-weight:900;line-height:1.1">${esc(b.title||'โปรใหญ่')}</h2>
+                <div style="font-size:14px;opacity:.95">${esc(b.subtitle||'')}</div>
+                ${b.cta ? `<button style="margin-top:14px;background:#fff;color:#000;border:none;padding:10px 20px;border-radius:99px;font-weight:700;cursor:pointer">${esc(b.cta)} →</button>`:''}
+              </div>
+              ${b.emoji ? `<div style="font-size:80px;line-height:1">${b.emoji}</div>`:''}
+            </div>
+          </div>
+        `}
+        ${banners.length > 1 ? `<div style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:4px">
+          ${banners.map((_,i)=>`<span style="width:6px;height:6px;border-radius:50%;background:${i===0?'#fff':'rgba(255,255,255,.5)'}"></span>`).join('')}
+        </div>`:''}
+      </section>
+    `;
+  }
+
+  // TikTok video grid (embed จาก URL) — คลิปทั้งหมด (ไม่แยก live)
+  function renderTiktokGrid() {
+    const vids = (S.tiktokVideos || []).slice().sort((a,b) =>
+      new Date(b.createdAt||0) - new Date(a.createdAt||0)
+    ).slice(0, 8);
+    if (vids.length === 0) return '';
+    return `
+      <section style="margin:20px 0">
+        <div class="section-head">
+          <h2>🎬 คลิปจาก TikTok</h2>
+          ${S.tiktokUrl?`<a class="link" href="${esc(S.tiktokUrl)}" target="_blank">ดูช่อง →</a>`:''}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">
+          ${vids.map(v => renderTiktokCard(v, false)).join('')}
+        </div>
+      </section>
+    `;
+  }
+  function renderTiktokCard(v) {
+    const url = esc(v.url||'');
+    const thumb = esc(v.thumbnail||'');
+    return `
+      <a href="${url}" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit;background:#000;border-radius:10px;overflow:hidden;position:relative;aspect-ratio:9/16;box-shadow:var(--shadow);transition:transform .15s" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+        ${thumb ? `<img src="${thumb}" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.style.display='none'">`
+                : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#000,#333);color:#fff;font-size:32px">🎵</div>`}
+        <div style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.6);color:#fff;padding:3px 6px;border-radius:4px;font-size:11px">▶</div>
+        ${v.views ? `<div style="position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,.6);color:#fff;padding:2px 8px;border-radius:4px;font-size:11px">${esc(v.views)}</div>` : ''}
+        ${v.title ? `<div style="position:absolute;bottom:0;left:0;right:0;padding:24px 8px 8px;background:linear-gradient(to top,rgba(0,0,0,.9),transparent);color:#fff;font-size:11px;font-weight:600">${esc(v.title.slice(0,60))}</div>` : ''}
+      </a>
+    `;
+  }
+
   function viewHome() {
     let list = EP;
     if (S.searchQ) {
@@ -1709,9 +2013,9 @@
     return `
       <section class="hero">
         <div class="hero-main">
-          <div class="hero-eyebrow">Food Packaging · 271 SKU</div>
-          <h1 class="hero-title">บรรจุภัณฑ์อาหาร ครบวงจร ราคาโรงงาน</h1>
-          <p class="hero-sub">กล่องเบนโตะ · กล่องซูชิ · แก้วกาแฟ · กระปุก · ช้อนส้อม — ส่งฟรีเมื่อครบ ฿1,500</p>
+          <div class="hero-eyebrow" style="color:var(--brand)">THE FOOD BOX ASIA · Food Packaging</div>
+          <h1 class="hero-title">บรรจุภัณฑ์อาหาร<br><span style="color:var(--brand)">ครบวงจร ราคาโรงงาน</span></h1>
+          <p class="hero-sub">กล่องอาหารกระดาษ · แก้วคราฟท์ · ถ้วยซุป · กระปุก · ช้อนส้อม — ส่งฟรีเมื่อครบ ฿1,500</p>
           <button class="hero-cta" onclick="go('/cat/foodbox')">ดูกล่องอาหาร →</button>
         </div>
         <div class="hero-side">
@@ -1725,6 +2029,9 @@
           </div>
         </div>
       </section>
+
+      ${renderPromoBanner()}
+      ${renderTiktokGrid()}
 
       <div class="section-head"><h2>หมวดหมู่ยอดนิยม</h2><a class="link">ดูทั้งหมด →</a></div>
       <div class="cat-grid">
@@ -1908,6 +2215,25 @@
           </div>
         </section>
 
+        <!-- Reviews -->
+        <section class="pd-section">
+          <h3 class="pd-h3">⭐ รีวิวจากลูกค้า</h3>
+          ${(() => {
+            const reviews = (S.sheetReviews||[]).filter(r => r.pid === p.id).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+            if (reviews.length === 0) return `<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">ยังไม่มีรีวิว · สั่งสินค้านี้ก่อนแล้วมารีวิวได้เลย</div>`;
+            const avg = reviews.reduce((s,r)=>s+r.rating,0)/reviews.length;
+            return `<div style="margin-bottom:12px"><b style="font-size:20px;color:var(--gold)">★ ${avg.toFixed(1)}</b> <span style="color:var(--text-muted)">จาก ${reviews.length} รีวิว</span></div>
+              ${reviews.slice(0,10).map(r => `<div style="padding:12px;background:var(--surface-warm);border-radius:8px;margin-bottom:8px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <b style="font-size:13px">${esc(r.customerName||'ลูกค้า')}</b>
+                  <span style="color:var(--gold);font-size:13px">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</span>
+                </div>
+                ${r.comment?`<div style="font-size:13px;color:var(--text);margin-top:6px">${esc(r.comment)}</div>`:''}
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${r.createdAt?new Date(r.createdAt).toLocaleDateString('th-TH'):''}</div>
+              </div>`).join('')}`;
+          })()}
+        </section>
+
         <!-- Payment info -->
         <section class="pd-section">
           <h3 class="pd-h3">💳 วิธีชำระเงิน</h3>
@@ -2002,8 +2328,16 @@
 
   function applyCoupon() {
     const val = $("coupon-inp").value.trim().toUpperCase();
-    if (val === "NEW100") { S.coupon = "NEW100"; saveState(); toast("ใช้คูปอง NEW100 ลด ฿100 แล้ว"); }
-    else { S.coupon = ""; saveState(); toast("ไม่พบคูปองนี้"); }
+    const c = findCoupon(val);
+    if (c) {
+      S.coupon = c.code;
+      saveState();
+      const label = c.kind==='percent' ? `${c.value}%` : `฿${c.value}`;
+      toast(`ใช้คูปอง ${c.code} ลด ${label} แล้ว`);
+    } else {
+      S.coupon = ""; saveState();
+      toast("ไม่พบคูปองนี้ / หมดอายุ / ใช้ครบแล้ว");
+    }
     render();
   }
 
@@ -2257,6 +2591,14 @@
               <input id="login-pw" type="password" placeholder="รหัสผ่าน" onkeydown="if(event.key==='Enter')loginAsCustomer()">
             </div>
             <button class="btn btn-primary btn-block btn-big" onclick="loginAsCustomer()">👤 เข้าสู่ระบบ</button>
+            ${S.liffId ? `
+              <div style="display:flex;align-items:center;gap:12px;margin:16px 0;color:var(--text-muted);font-size:11px">
+                <div style="flex:1;height:1px;background:var(--border)"></div>หรือ<div style="flex:1;height:1px;background:var(--border)"></div>
+              </div>
+              <button class="btn btn-block btn-big" onclick="loginWithLINE()" style="background:#06C755;color:#fff;border:none">
+                <span style="font-size:18px">💚</span> เข้าสู่ระบบด้วย LINE
+              </button>
+            ` : ''}
             <div style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:14px">
               ยังไม่มีบัญชี? <a onclick="go('/register')" style="color:var(--brand);cursor:pointer;font-weight:700">สมัครสมาชิก →</a>
             </div>
@@ -2725,10 +3067,12 @@
   // Auto-load products from Sheet on page load
   async function autoLoadFromSheet() {
     if (!S.sheetApiUrl) return;
-    // Only auto-load if last sync was > 5 min ago (avoid excess API calls)
     const staleness = Date.now() - (S.sheetLastSync || 0);
     if (staleness < 5 * 60 * 1000 && S.sheetProducts) return;
     await pullProductsFromSheet();
+    // Load coupons + reviews in background (silent)
+    pullCouponsFromSheet().catch(()=>{});
+    pullReviewsFromSheet().catch(()=>{});
     render();
   }
 
@@ -2790,6 +3134,65 @@
           </tr>`).join('')}</tbody>
         </table>
       </div>` : `<div class="cart-empty" style="margin-top:24px"><div class="icon">📋</div><div style="font-size:14px">ยังไม่มีคำสั่งซื้อ</div></div>`}
+      ${renderStatsBlock(orders)}
+    `;
+  }
+
+  function renderStatsBlock(orders) {
+    const today = new Date().toISOString().slice(0,10);
+    const monthKey = new Date().toISOString().slice(0,7);
+    const paid = orders.filter(o => ['paid','preparing','shipping','delivered'].includes(o.status));
+    const bills = allBillsFlat();
+    const salesToday = paid.filter(o => (o.createdAt||'').slice(0,10)===today).reduce((s,o)=>s+(o.total||0),0)
+                     + bills.filter(b => (b.createdAt||'').slice(0,10)===today && b.status==='paid').reduce((s,b)=>s+(b.total||0),0);
+    const salesMonth = paid.filter(o => (o.createdAt||'').slice(0,7)===monthKey).reduce((s,o)=>s+(o.total||0),0)
+                     + bills.filter(b => (b.createdAt||'').slice(0,7)===monthKey && b.status==='paid').reduce((s,b)=>s+(b.total||0),0);
+    // Top products
+    const qtyByPid = {};
+    [...paid, ...bills.filter(b=>b.status==='paid')].forEach(o => {
+      (o.items||[]).forEach(it => { qtyByPid[it.pid] = (qtyByPid[it.pid]||0) + Number(it.qty||0); });
+    });
+    const topProducts = Object.entries(qtyByPid).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    // New customers this month
+    const custSource = S.sheetCustomers || S.registeredUsers || [];
+    const newCustomers = custSource.filter(u => (u.registeredAt||'').slice(0,7) === monthKey).length;
+    // Low stock
+    const lowStock = EP.filter(p => Number(p.stock||0) > 0 && Number(p.stock||0) < 20).sort((a,b)=>Number(a.stock)-Number(b.stock)).slice(0,10);
+    const outOfStock = EP.filter(p => Number(p.stock||0) === 0).length;
+    return `
+      <div class="section-head" style="margin-top:24px"><h2 style="font-size:16px">📈 สรุปยอดขาย</h2></div>
+      <div class="admin-stats" style="grid-template-columns:repeat(4,1fr)">
+        <div class="admin-stat" style="border:2px solid #22c55e"><div class="s-label">ยอดขายวันนี้</div><div class="s-val" style="color:#22c55e">${money(salesToday)}</div></div>
+        <div class="admin-stat"><div class="s-label">ยอดขายเดือนนี้</div><div class="s-val">${money(salesMonth)}</div></div>
+        <div class="admin-stat"><div class="s-label">ลูกค้าใหม่ (เดือนนี้)</div><div class="s-val" style="color:var(--brand)">${newCustomers}</div></div>
+        <div class="admin-stat" style="cursor:pointer" onclick="go('/admin/products')"><div class="s-label">สินค้าใกล้หมด / หมด</div><div class="s-val" style="color:${lowStock.length||outOfStock?'#f59e0b':'#22c55e'}">${lowStock.length} / ${outOfStock}</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+        <div class="co-card" style="margin:0">
+          <h3 style="margin:0 0 12px">🏆 Top 10 สินค้าขายดี</h3>
+          ${topProducts.length===0?'<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">ยังไม่มีข้อมูล</div>':`
+          <table class="admin-table"><thead><tr><th>#</th><th>สินค้า</th><th style="text-align:right">ขายได้</th></tr></thead><tbody>
+            ${topProducts.map(([pid, qty], i) => {
+              const p = EP.find(x=>x.id===pid) || { name: pid, icon:'📦' };
+              return `<tr style="cursor:pointer" onclick="go('/product/${pid}')">
+                <td style="font-weight:700;color:var(--brand)">${i+1}</td>
+                <td style="font-size:12px">${p.icon||'📦'} ${(p.name||pid).slice(0,50)}</td>
+                <td class="mono" style="text-align:right;font-weight:700">${qty}</td>
+              </tr>`;
+            }).join('')}
+          </tbody></table>`}
+        </div>
+        <div class="co-card" style="margin:0">
+          <h3 style="margin:0 0 12px">⚠️ สต็อกใกล้หมด (< 20)</h3>
+          ${lowStock.length===0?'<div style="padding:16px;text-align:center;color:var(--success);font-size:13px">✅ สต็อกทุกตัวปกติ</div>':`
+          <table class="admin-table"><thead><tr><th>สินค้า</th><th style="text-align:right">คงเหลือ</th></tr></thead><tbody>
+            ${lowStock.map(p => `<tr style="cursor:pointer" onclick="go('/admin/edit/${p.id}')">
+              <td style="font-size:12px">${p.icon||'📦'} ${(p.name||'').slice(0,50)}</td>
+              <td class="mono" style="text-align:right;font-weight:700;color:${Number(p.stock)<5?'#ef4444':'#f59e0b'}">${p.stock}</td>
+            </tr>`).join('')}
+          </tbody></table>`}
+        </div>
+      </div>
     `;
   }
 
@@ -2864,7 +3267,10 @@
     (S.orders || []).forEach(o => { if (!byPo.has(o.po)) byPo.set(o.po, o); });
     const orders = Array.from(byPo.values()).sort((a,b) => new Date(b.createdAt||0) - new Date(a.createdAt||0));
     return `
-      ${adminPageHeader('จัดการคำสั่งซื้อ', '📋', '<button class="btn btn-outline" onclick="pullOrdersFromSheet().then(()=>render())">🔄 Refresh</button>')}
+      ${adminPageHeader('จัดการคำสั่งซื้อ', '📋', `
+        <button class="btn btn-outline" onclick="exportOrdersCsv()">📥 CSV</button>
+        <button class="btn btn-outline" onclick="pullOrdersFromSheet().then(()=>render())">🔄 Refresh</button>
+      `)}
       ${orders.length === 0 ? `<div class="cart-empty"><div class="icon">📋</div><div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px">ยังไม่มีคำสั่งซื้อ</div><div style="font-size:13px">พอมีลูกค้าสั่งซื้อ จะโผล่ที่นี่ทันที</div></div>` : `
       <div class="admin-table-wrap">
         <table class="admin-table">
@@ -2896,6 +3302,565 @@
     `;
   }
 
+  // =========================
+  // COUPONS admin
+  // =========================
+  async function pullCouponsFromSheet() {
+    if (!S.sheetApiUrl) return;
+    try { const res = await apiCall("listCoupons"); if (res.ok) { S.sheetCoupons = res.coupons||[]; saveState(); } } catch(e){}
+  }
+  function viewAdminCoupons() {
+    if (S.sheetApiUrl && (Date.now()-(S.couponsLastSync||0))>10000) {
+      pullCouponsFromSheet().then(()=>{ S.couponsLastSync=Date.now(); render(); });
+    }
+    const list = S.sheetCoupons || [];
+    return `
+      ${adminPageHeader('คูปองส่วนลด','🎁',`<button class="btn btn-primary" onclick="promptNewCoupon()">➕ เพิ่มคูปอง</button>`)}
+      <div style="background:#e6f4ff;border:1px solid #91caff;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px">
+        💡 คูปองเก็บใน tab <b>coupons</b> · ลูกค้าใส่โค้ดในตะกร้าเพื่อลดราคา
+      </div>
+      ${list.length===0?`<div class="cart-empty"><div class="icon">🎁</div><div>ยังไม่มีคูปอง — กด "เพิ่มคูปอง"</div></div>`:`
+      <div class="admin-table-wrap">
+        <table class="admin-table"><thead><tr><th>โค้ด</th><th>ส่วนลด</th><th>ขั้นต่ำ</th><th>ใช้แล้ว/จำกัด</th><th>หมดอายุ</th><th>สถานะ</th><th>Actions</th></tr></thead><tbody>
+          ${list.map(c=>`<tr>
+            <td class="mono" style="font-weight:700;color:var(--brand)">${c.code}</td>
+            <td>${c.kind==='percent'?c.value+'%':'฿'+c.value}</td>
+            <td>${c.minTotal?'฿'+c.minTotal:'-'}</td>
+            <td>${c.used||0}${c.maxUses?' / '+c.maxUses:' / ∞'}</td>
+            <td style="font-size:11px">${c.expiresAt?new Date(c.expiresAt).toLocaleDateString('th-TH'):'-'}</td>
+            <td>${c.active?'<span style="color:#22c55e">✓ ใช้ได้</span>':'<span style="color:#ef4444">✕ ปิด</span>'}</td>
+            <td>
+              <button class="admin-btn" onclick="toggleCoupon('${c.code}')" title="เปิด/ปิด">${c.active?'⏸️':'▶️'}</button>
+              <button class="admin-btn" onclick="deleteCouponAdmin('${c.code}')" title="ลบ">🗑️</button>
+            </td>
+          </tr>`).join('')}
+        </tbody></table>
+      </div>`}
+    `;
+  }
+  async function promptNewCoupon() {
+    const code = (prompt("โค้ด (พิมพ์ใหญ่ ไม่มีเว้นวรรค):","") || '').trim().toUpperCase();
+    if (!code) return;
+    const kind = confirm("ลดเป็น % หรือไม่? (OK=%, Cancel=฿)") ? 'percent' : 'amount';
+    const value = Number(prompt(kind==='percent'?"ลดกี่ %?":"ลดกี่ ฿?","10")||0);
+    const minTotal = Number(prompt("ขั้นต่ำยอดสั่ง (0=ไม่จำกัด):","0")||0);
+    const maxUses = Number(prompt("ใช้ได้กี่ครั้ง (0=ไม่จำกัด):","0")||0);
+    const expiresAt = prompt("วันหมดอายุ (YYYY-MM-DD, ว่าง=ไม่หมด):","");
+    const data = { code, kind, value, minTotal, maxUses, used:0, active:true, expiresAt, note:'' };
+    const res = await apiCall("upsertCoupon", { data }, true);
+    if (res && res.ok) { toast(`✓ เพิ่มคูปอง ${code}`); pullCouponsFromSheet().then(()=>render()); }
+    else toast("❌ ล้มเหลว: " + ((res&&res.error)||''));
+  }
+  async function toggleCoupon(code) {
+    const c = (S.sheetCoupons||[]).find(x=>x.code===code); if (!c) return;
+    c.active = !c.active;
+    await apiCall("upsertCoupon", { data: c }, true);
+    pullCouponsFromSheet().then(()=>render());
+  }
+  async function deleteCouponAdmin(code) {
+    if (!confirm(`ลบคูปอง ${code}?`)) return;
+    await apiCall("deleteCoupon", { code }, true);
+    pullCouponsFromSheet().then(()=>render());
+  }
+
+  // =========================
+  // PROMOS admin (banners + TikTok videos)
+  // =========================
+  function viewAdminPromos() {
+    const banners = S.banners || [];
+    const vids = S.tiktokVideos || [];
+    return `
+      ${adminPageHeader('โปรโมชั่น + คลิป TikTok', '📢', `
+        <button class="btn btn-primary" onclick="addBanner()">➕ Banner</button>
+        <button class="btn btn-primary" onclick="addTiktokVideo()" style="background:#000">➕ TikTok</button>
+      `)}
+      <div style="background:#e6f4ff;border:1px solid #91caff;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px">
+        💡 Banner + คลิปเก็บใน browser + Sheet · โผล่บนหน้าแรก · คลิปดึงจาก TikTok ผ่าน URL
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="co-card" style="margin:0">
+          <h3 style="margin:0 0 12px">🖼️ Banner โฆษณา (${banners.length})</h3>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">แบบ Shopee iPhone banner · ใช้ image URL หรือ text-only + gradient</div>
+          ${banners.length===0?'<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">ยังไม่มี banner — กด "➕ Banner"</div>':
+          banners.map((b,i) => `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;display:flex;gap:10px;align-items:center">
+            ${b.image?`<img src="${esc(b.image)}" style="width:60px;height:60px;object-fit:cover;border-radius:6px">`:`<div style="width:60px;height:60px;border-radius:6px;background:linear-gradient(135deg,${b.color1||'#EE4D2D'},${b.color2||'#ff6b3d'});display:grid;place-items:center;font-size:24px">${b.emoji||'📢'}</div>`}
+            <div style="flex:1">
+              <div style="font-weight:700;font-size:13px">${esc(b.title||'ไม่มีชื่อ')}</div>
+              <div style="font-size:11px;color:var(--text-muted)">${esc((b.subtitle||'').slice(0,60))}</div>
+            </div>
+            <button class="admin-btn" onclick="editBanner(${i})" title="แก้ไข">✏️</button>
+            <button class="admin-btn" onclick="deleteBanner(${i})" title="ลบ">🗑️</button>
+          </div>`).join('')}
+        </div>
+
+        <div class="co-card" style="margin:0">
+          <h3 style="margin:0 0 12px">🎬 TikTok Videos (${vids.length})</h3>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Paste URL คลิป TikTok · thumbnail ใส่รูปเอง หรือ auto</div>
+          ${vids.length===0?'<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">ยังไม่มีคลิป — กด "➕ TikTok"</div>':
+          vids.map((v,i) => `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;display:flex;gap:10px;align-items:center">
+            ${v.thumbnail?`<img src="${esc(v.thumbnail)}" style="width:40px;height:60px;object-fit:cover;border-radius:6px">`:`<div style="width:40px;height:60px;border-radius:6px;background:#000;display:grid;place-items:center;color:#fff">🎵</div>`}
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:12px">${esc((v.title||v.url||'').slice(0,50))}</div>
+              <div style="font-size:10px;color:var(--text-muted);word-break:break-all">${esc((v.url||'').slice(0,60))}</div>
+              ${v.views?`<div style="font-size:10px;color:var(--text-muted)">▶ ${esc(v.views)} views</div>`:''}
+            </div>
+            <button class="admin-btn" onclick="refetchTiktok(${i})" title="ดึง thumbnail ใหม่จาก TikTok">🔄</button>
+            <button class="admin-btn" onclick="editTiktok(${i})" title="แก้ไข">✏️</button>
+            <button class="admin-btn" onclick="deleteTiktok(${i})" title="ลบ">🗑️</button>
+          </div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function addBanner() {
+    const title = prompt("หัวข้อ banner:","โปรใหญ่ของเดือน"); if (!title) return;
+    const subtitle = prompt("คำอธิบายรอง:","ลดสูงสุด 50%")||'';
+    const cta = prompt("ข้อความปุ่ม:","ช้อปเลย")||'';
+    const link = prompt("URL เมื่อคลิก (optional):","/#/cat/foodbox")||'';
+    const image = prompt("URL รูป (ปล่อยว่าง = ใช้ gradient):","")||'';
+    const emoji = image?'':prompt("Emoji ใหญ่ (ถ้าไม่มีรูป):","📦")||'📦';
+    S.banners = S.banners || [];
+    S.banners.push({ title, subtitle, cta, link, image, emoji, color1:'#EE4D2D', color2:'#ff6b3d' });
+    saveState(); toast("✓ เพิ่ม banner"); render();
+  }
+  function editBanner(i) {
+    const b = S.banners[i]; if (!b) return;
+    const title = prompt("หัวข้อ:", b.title); if (title===null) return; b.title = title;
+    b.subtitle = prompt("คำอธิบาย:", b.subtitle)||'';
+    b.cta = prompt("ปุ่ม CTA:", b.cta)||'';
+    b.link = prompt("URL:", b.link)||'';
+    b.image = prompt("URL รูป:", b.image)||'';
+    saveState(); toast("✓ อัพเดต"); render();
+  }
+  function deleteBanner(i) {
+    if (!confirm("ลบ banner นี้?")) return;
+    S.banners.splice(i,1); saveState(); render();
+  }
+
+  async function fetchTiktokMeta(url) {
+    if (!S.sheetApiUrl) return null;
+    try {
+      const res = await apiCall("oembedTiktok", { videoUrl: url });
+      if (res && res.ok) return res;
+      console.error("[tiktok oembed]", res && res.error);
+      return null;
+    } catch (e) { console.error("[tiktok oembed]", e); return null; }
+  }
+
+  async function addTiktokVideo() {
+    const url = prompt("Paste URL คลิป TikTok:","https://www.tiktok.com/@iamplastic.thailand/video/xxxxx");
+    if (!url) return;
+    toast("⏳ กำลังดึงข้อมูลจาก TikTok...");
+    const meta = await fetchTiktokMeta(url);
+    const title = meta?.title || prompt("ดึงไม่ได้ · กรอก caption:","")||'';
+    const thumbnail = meta?.thumbnail || prompt("ดึงไม่ได้ · paste URL thumbnail:","")||'';
+    const author = meta?.author || '';
+    const views = prompt("ยอด view (optional · ปล่อยว่างได้):","")||'';
+    S.tiktokVideos = S.tiktokVideos || [];
+    S.tiktokVideos.unshift({ url, title, thumbnail, author, views, createdAt: new Date().toISOString() });
+    saveState();
+    toast(meta ? `✓ เพิ่มคลิป: ${title.slice(0,40)}` : "✓ เพิ่มคลิป (กรอกเอง)");
+    render();
+  }
+
+  async function refetchTiktok(i) {
+    const v = S.tiktokVideos[i]; if (!v || !v.url) return;
+    toast("⏳ ดึงใหม่จาก TikTok...");
+    const meta = await fetchTiktokMeta(v.url);
+    if (meta) {
+      v.title = meta.title || v.title;
+      v.thumbnail = meta.thumbnail || v.thumbnail;
+      v.author = meta.author || v.author;
+      saveState(); toast("✓ อัพเดตแล้ว"); render();
+    } else { toast("❌ ดึงไม่ได้"); }
+  }
+
+  async function editTiktok(i) {
+    const v = S.tiktokVideos[i]; if (!v) return;
+    const newUrl = prompt("URL:", v.url) || v.url;
+    if (newUrl !== v.url) {
+      v.url = newUrl;
+      toast("⏳ ดึงข้อมูลใหม่...");
+      const meta = await fetchTiktokMeta(newUrl);
+      if (meta) { v.title = meta.title; v.thumbnail = meta.thumbnail; v.author = meta.author; }
+    }
+    v.title = prompt("Caption:", v.title||'') || v.title || '';
+    v.thumbnail = prompt("Thumbnail URL:", v.thumbnail||'') || v.thumbnail || '';
+    v.views = prompt("ยอด view:", v.views||'') || v.views || '';
+    saveState(); toast("✓ อัพเดต"); render();
+  }
+  function deleteTiktok(i) {
+    if (!confirm("ลบคลิปนี้?")) return;
+    S.tiktokVideos.splice(i,1); saveState(); render();
+  }
+
+  // =========================
+  // SETTINGS admin (PromptPay, Cloudinary, SlipOK, GA, shop info)
+  // =========================
+  function viewAdminSettings() {
+    const inp = (id, label, val, ph, type='text') => `
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">${label}</span>
+        <input id="set-${id}" type="${type}" value="${(val||'').replace(/"/g,'&quot;')}" placeholder="${ph||''}"
+          style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px">
+      </label>`;
+    return `
+      ${adminPageHeader('ตั้งค่าร้าน','⚙️','<button class="btn btn-primary" onclick="saveShopSettings()">💾 บันทึก</button>')}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="co-card" style="margin:0">
+          <h3 style="margin:0 0 12px">🏪 ข้อมูลร้าน</h3>
+          ${inp('shopName','ชื่อร้าน',S.shopName,'iamplastic')}
+          ${inp('shopPhone','เบอร์ร้าน',S.shopPhone,'081-234-5678')}
+          ${inp('shopAddress','ที่อยู่ร้าน',S.shopAddress,'')}
+        </div>
+        <div class="co-card" style="margin:0">
+          <h3 style="margin:0 0 12px">📱 ช่องทางติดต่อ (ปุ่มลอย)</h3>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">ปล่อยว่าง = ไม่แสดงในปุ่มลอย</div>
+          ${inp('lineOA','LINE OA URL',S.lineOA,'https://line.me/R/ti/p/@iamplastic')}
+          ${inp('messengerUrl','Facebook Messenger URL',S.messengerUrl,'https://m.me/pagename')}
+          ${inp('tiktokUrl','TikTok URL',S.tiktokUrl,'https://tiktok.com/@shopname')}
+          ${inp('youtubeUrl','YouTube URL',S.youtubeUrl,'https://youtube.com/@channel')}
+          ${inp('contactEmail','อีเมลติดต่อ',S.contactEmail,'shop@example.com')}
+        </div>
+        <div class="co-card" style="margin:0">
+          <h3 style="margin:0 0 12px">💰 PromptPay</h3>
+          ${inp('promptPayId','เลข PromptPay (เบอร์/เลขบัตร ปชช.)',S.promptPayId,'0812345678')}
+          <div style="font-size:11px;color:var(--text-muted);margin-top:-8px;margin-bottom:12px">💡 QR จะ gen อัตโนมัติจาก promptpay.io</div>
+          <div style="text-align:center;padding:12px">
+            <img src="https://promptpay.io/${(S.promptPayId||'0812345678').replace(/[-\s]/g,'')}/100.png" style="width:150px" onerror="this.style.display='none'">
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Preview (100 บาท)</div>
+          </div>
+        </div>
+        <div class="co-card" style="margin:0">
+          <h3 style="margin:0 0 12px">🔍 SlipOK (Auto verify สลิป)</h3>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">สมัครที่ <a href="https://slipok.com" target="_blank" style="color:var(--brand)">slipok.com</a> · ปล่อยว่าง = ปิด auto-verify</div>
+          ${inp('slipokApiKey','API Key',S.slipokApiKey,'SLIPOK-xxxxx')}
+          ${inp('slipokBranchId','Branch ID',S.slipokBranchId,'12345')}
+        </div>
+        <div class="co-card" style="margin:0">
+          <h3 style="margin:0 0 12px">☁️ Cloudinary (อัพรูปสินค้า)</h3>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">สมัครฟรีที่ <a href="https://cloudinary.com" target="_blank" style="color:var(--brand)">cloudinary.com</a> · ต้อง enable unsigned upload</div>
+          ${inp('cloudinaryCloud','Cloud Name',S.cloudinaryCloud,'dxxxxxxx')}
+          ${inp('cloudinaryPreset','Upload Preset (unsigned)',S.cloudinaryPreset,'iamplastic_preset')}
+        </div>
+        <div class="co-card" style="margin:0">
+          <h3 style="margin:0 0 12px">📊 Google Analytics</h3>
+          ${inp('gaTagId','GA4 Measurement ID',S.gaTagId,'G-XXXXXXXX')}
+          <div style="font-size:11px;color:var(--text-muted);margin-top:-8px">💡 ถ้าใส่แล้ว refresh หน้าเพื่อโหลด script</div>
+        </div>
+        <div class="co-card" style="margin:0;grid-column:1 / -1">
+          <h3 style="margin:0 0 12px">💚 LINE Login (LIFF)</h3>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
+            สร้าง LIFF app ที่ <a href="https://developers.line.biz/console" target="_blank" style="color:var(--brand)">developers.line.biz</a> · Endpoint URL = URL เว็บของคุณ · Scope: profile, openid<br>
+            ปล่อยว่าง = ปิด LINE Login (ยังใช้ email/password ได้ปกติ)
+          </div>
+          ${inp('liffId','LIFF ID',S.liffId,'2000000000-abcdefgh')}
+        </div>
+      </div>
+    `;
+  }
+  function saveShopSettings() {
+    const g = id => (document.getElementById('set-'+id)||{}).value.trim();
+    S.shopName = g('shopName');
+    S.shopPhone = g('shopPhone');
+    S.shopAddress = g('shopAddress');
+    S.promptPayId = g('promptPayId');
+    S.slipokApiKey = g('slipokApiKey');
+    S.slipokBranchId = g('slipokBranchId');
+    S.cloudinaryCloud = g('cloudinaryCloud');
+    S.cloudinaryPreset = g('cloudinaryPreset');
+    S.gaTagId = g('gaTagId');
+    S.liffId = g('liffId');
+    S.lineOA = g('lineOA');
+    S.messengerUrl = g('messengerUrl');
+    S.tiktokUrl = g('tiktokUrl');
+    S.youtubeUrl = g('youtubeUrl');
+    S.contactEmail = g('contactEmail');
+    saveState();
+    toast("✓ บันทึกการตั้งค่าแล้ว");
+    render();
+  }
+
+  // =========================
+  // LABEL — Print sticker
+  // =========================
+  function viewAdminLabel(po) {
+    const all = [...allBillsFlat(), ...(S.sheetOrders||[]), ...(S.orders||[])];
+    const o = all.find(x => (x.bl||x.po) === po);
+    if (!o) return `<div class="cart-empty"><div>ไม่พบ ${po}</div></div>`;
+    const c = o.customer || {};
+    return `
+      <style>
+        @media print { .no-print { display:none !important } body { background:#fff } .label-sheet { box-shadow:none;margin:0 } }
+        .label-sheet { width:100mm;min-height:150mm;background:#fff;padding:8mm;box-shadow:var(--shadow);margin:16px auto;font-family:'Sarabun',sans-serif;color:#000 }
+      </style>
+      <div class="no-print" style="text-align:center;padding:12px">
+        <button class="btn btn-primary" onclick="window.print()">🖨️ พิมพ์ Label</button>
+        <button class="btn btn-outline" onclick="history.back()">← กลับ</button>
+      </div>
+      <div class="label-sheet">
+        <div style="border-bottom:2px solid #000;padding-bottom:6px;margin-bottom:8px">
+          <div style="font-size:11px;color:#666">${S.shopName||'iamplastic'} · ${S.shopPhone||''}</div>
+          <div style="font-size:16px;font-weight:900;font-family:'Space Grotesk'">${o.po||o.bl}</div>
+        </div>
+        <div style="font-size:11px;color:#666;margin-bottom:4px">📤 FROM</div>
+        <div style="font-size:12px;margin-bottom:12px">${S.shopName||'-'} · ${S.shopPhone||'-'}<br>${S.shopAddress||''}</div>
+        <div style="border-top:1px dashed #000;padding-top:8px"></div>
+        <div style="font-size:11px;color:#666;margin-bottom:4px">📥 TO</div>
+        <div style="font-size:16px;font-weight:800;margin-bottom:2px">${c.name||'-'}</div>
+        <div style="font-size:13px;margin-bottom:2px">📞 ${c.phone||'-'}</div>
+        <div style="font-size:13px;line-height:1.5;margin-bottom:12px">${c.address||'-'}</div>
+        ${o.tracking ? `<div style="border:2px solid #000;padding:6px;text-align:center;margin-top:8px">
+          <div style="font-size:10px">TRACKING</div>
+          <div style="font-size:14px;font-weight:900;font-family:monospace">${o.tracking}</div>
+          <div style="font-size:11px">${o.carrierName||o.shippingMethod||''}</div>
+        </div>` : ''}
+        <div style="margin-top:8px;font-size:11px;text-align:right;color:#666">${new Date(o.createdAt).toLocaleDateString('th-TH')} · ${(o.items||[]).length} ชิ้น</div>
+      </div>
+    `;
+  }
+
+  function viewAccountProfile() {
+    if (!isLoggedIn()) { setTimeout(()=>go('/login'),10); return ''; }
+    const u = S.user;
+    return `
+      <div class="wrap" style="max-width:600px;margin:20px auto">
+        <h1 style="margin:0 0 16px">👤 โปรไฟล์ของฉัน</h1>
+        <div class="co-card" style="margin:0">
+          <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--text-muted)">ชื่อ</span><input id="pf-name" value="${(u.name||'').replace(/"/g,'&quot;')}" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px"></label>
+          <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--text-muted)">เบอร์</span><input id="pf-phone" value="${(u.phone||'')}" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px"></label>
+          <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--text-muted)">อีเมล</span><input id="pf-email" value="${(u.email||'')}" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px" disabled></label>
+          <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--text-muted)">รหัสผ่านใหม่ (ปล่อยว่าง = ไม่เปลี่ยน)</span><input id="pf-pw" type="password" placeholder="อย่างน้อย 6 ตัว" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px"></label>
+          <button class="btn btn-primary btn-block btn-big" onclick="saveProfile()">💾 บันทึก</button>
+          <a onclick="go('/account/addresses')" style="display:block;text-align:center;margin-top:14px;color:var(--brand);cursor:pointer;font-weight:700">📍 จัดการที่อยู่จัดส่ง</a>
+        </div>
+      </div>
+    `;
+  }
+  function saveProfile() {
+    const g = id => (document.getElementById(id)||{}).value.trim();
+    const name = g('pf-name'), phone = g('pf-phone'), pw = g('pf-pw');
+    if (!name||!phone) { toast("ชื่อ+เบอร์ห้ามว่าง"); return; }
+    S.user.name = name; S.user.phone = phone;
+    if (pw) { if (pw.length<6) { toast("รหัสผ่าน >= 6 ตัว"); return; } S.user.password = btoa(pw); }
+    const idx = S.registeredUsers.findIndex(x => x.email === S.user.email);
+    if (idx>=0) { S.registeredUsers[idx].name=name; S.registeredUsers[idx].phone=phone; if (pw) S.registeredUsers[idx].password=btoa(pw); }
+    saveState();
+    if (S.sheetApiUrl) pushCustomerToSheet(S.user).catch(()=>{});
+    toast("✓ บันทึกโปรไฟล์แล้ว"); render();
+  }
+
+  function viewWishlist() {
+    const ids = S.wishlist || [];
+    const products = ids.map(id => EP.find(p => p.id === id)).filter(Boolean);
+    return `
+      <div class="wrap" style="max-width:1200px;margin:20px auto">
+        <h1 style="margin:0 0 16px">❤️ Wishlist ${products.length?`(${products.length})`:''}</h1>
+        ${products.length===0?`<div class="cart-empty"><div class="icon">💔</div><div>ยังไม่มีสินค้าในรายการโปรด</div><button class="btn btn-primary" style="margin-top:14px" onclick="go('/')">← เลือกสินค้า</button></div>`:
+          `<div class="grid">${products.map(p => productCard(p)).join('')}</div>`}
+      </div>
+    `;
+  }
+  function toggleWishlist(pid) {
+    S.wishlist = S.wishlist || [];
+    const idx = S.wishlist.indexOf(pid);
+    if (idx>=0) { S.wishlist.splice(idx,1); toast("ลบจากรายการโปรด"); }
+    else { S.wishlist.push(pid); toast("❤️ เพิ่มในรายการโปรด"); }
+    saveState(); render();
+  }
+  const isInWishlist = pid => (S.wishlist||[]).includes(pid);
+
+  // =========================
+  // REVIEWS
+  // =========================
+  async function pullReviewsFromSheet() {
+    if (!S.sheetApiUrl) return;
+    try { const res = await apiCall("listReviews"); if (res.ok) { S.sheetReviews = res.reviews||[]; saveState(); } } catch(e){}
+  }
+  async function submitReview(pid, po) {
+    const rating = Number(prompt("ให้คะแนน 1-5 ดาว:","5")||0);
+    if (rating<1||rating>5) return;
+    const comment = prompt("แสดงความคิดเห็น (optional):","")||'';
+    const data = { pid, po, rating, comment,
+      customerName: S.user?S.user.name:'ลูกค้า',
+      customerPhone: S.user?S.user.phone||'':'' };
+    const res = await apiCall("addReview", { data }, true);
+    if (res && res.ok) { toast("✓ ขอบคุณสำหรับรีวิว!"); pullReviewsFromSheet().then(()=>render()); }
+  }
+
+  // =========================
+  // LINE Login (LIFF)
+  // =========================
+  async function initLIFF() {
+    if (!window.liff || !S.liffId) return;
+    try {
+      await liff.init({ liffId: S.liffId });
+      if (liff.isLoggedIn()) {
+        const profile = await liff.getProfile();
+        S.lineProfile = {
+          userId: profile.userId,
+          displayName: profile.displayName,
+          pictureUrl: profile.pictureUrl,
+          email: (liff.getDecodedIDToken && liff.getDecodedIDToken() && liff.getDecodedIDToken().email) || '',
+        };
+        saveState();
+        // Auto-login ถ้ายังไม่ได้ login
+        if (!isLoggedIn()) {
+          autoLoginFromLINE();
+        }
+        render();
+      }
+    } catch (e) { console.error("LIFF init err:", e); }
+  }
+
+  async function loginWithLINE() {
+    if (!window.liff) { toast("LIFF ยังไม่โหลด — refresh หน้า"); return; }
+    if (!liff.isLoggedIn()) {
+      liff.login({ redirectUri: location.href });
+    } else {
+      const profile = await liff.getProfile();
+      S.lineProfile = {
+        userId: profile.userId, displayName: profile.displayName,
+        pictureUrl: profile.pictureUrl,
+        email: (liff.getDecodedIDToken && liff.getDecodedIDToken() && liff.getDecodedIDToken().email) || '',
+      };
+      saveState();
+      autoLoginFromLINE();
+    }
+  }
+
+  function autoLoginFromLINE() {
+    const p = S.lineProfile; if (!p) return;
+    const lineKey = 'LINE:' + p.userId;
+    // ค้นบัญชีที่ผูก LINE ไว้แล้ว
+    let user = S.registeredUsers.find(u => u.lineUserId === p.userId);
+    if (!user) {
+      // สร้างใหม่
+      user = {
+        name: p.displayName,
+        firstName: p.displayName, lastName: '',
+        phone: '', email: p.email || lineKey,
+        password: '',
+        lineUserId: p.userId,
+        pictureUrl: p.pictureUrl,
+        registeredAt: new Date().toISOString(),
+        addresses: [],
+      };
+      S.registeredUsers.push(user);
+      if (S.sheetApiUrl) pushCustomerToSheet(user).catch(()=>{});
+    } else {
+      // update ชื่อ+รูปให้ล่าสุด
+      user.name = p.displayName;
+      user.pictureUrl = p.pictureUrl;
+    }
+    S.user = { role: 'customer', ...user };
+    saveState();
+    toast(`✓ เข้าสู่ระบบด้วย LINE · สวัสดีคุณ${p.displayName}`);
+    render();
+  }
+
+  function logoutLINE() {
+    if (window.liff && liff.isLoggedIn()) liff.logout();
+    S.lineProfile = null;
+    doLogout();
+  }
+
+  // =========================
+  // CLOUDINARY upload
+  // =========================
+  async function uploadToCloudinary(file) {
+    if (!S.cloudinaryCloud || !S.cloudinaryPreset) { toast("ยังไม่ได้ตั้งค่า Cloudinary — ไปที่ /admin/settings"); return null; }
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('upload_preset', S.cloudinaryPreset);
+    try {
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${S.cloudinaryCloud}/image/upload`, { method:'POST', body:fd });
+      const j = await res.json();
+      if (j.secure_url) return j.secure_url;
+      toast("อัพรูปล้มเหลว: " + (j.error?j.error.message:'unknown'));
+    } catch (e) { toast("อัพรูปล้มเหลว: " + e.message); }
+    return null;
+  }
+
+  function viewAdminCustomerDetail(key) {
+    const source = S.sheetCustomers || S.registeredUsers || [];
+    const u = source.find(x => x.phone === key || x.email === key);
+    if (!u) return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบลูกค้า ${key}</div><button class="btn btn-primary" style="margin-top:14px" onclick="go('/admin/customers')">← กลับ</button></div>`;
+    const orders = ((S.sheetOrders||[]).concat(S.orders||[])).filter(o =>
+      (o.customer||{}).phone === u.phone || (o.customer||{}).email === u.email);
+    const bills = allBillsFlat().filter(b =>
+      (b.customer||{}).phone === u.phone || (b.customer||{}).email === u.email);
+    const totalSpent = orders.reduce((s,o)=>s+(o.total||0),0) + bills.reduce((s,b)=>s+(b.total||0),0);
+    return `
+      ${adminPageHeader('ลูกค้า: '+(u.name||'-'), '👤', `
+        <button class="btn btn-outline" onclick="go('/admin/customers')">← กลับ</button>
+        <button class="btn btn-primary" onclick="resetCustomerPassword('${u.phone||u.email}')">🔑 Reset Password</button>
+      `)}
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:16px">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="co-card" style="margin:0">
+            <h3 style="margin:0 0 12px">📇 ข้อมูล</h3>
+            <table class="pd-specs" style="font-size:13px">
+              <tr><td>ชื่อ</td><td><b>${u.name||'-'}</b></td></tr>
+              <tr><td>เบอร์</td><td class="mono">${u.phone||'-'}</td></tr>
+              <tr><td>อีเมล</td><td>${u.email||'-'}</td></tr>
+              <tr><td>ประเภท</td><td>${u.isCorporate?'🏢 นิติบุคคล':'👤 บุคคล'}</td></tr>
+              ${u.isCorporate?`<tr><td>บริษัท</td><td>${u.company||'-'}</td></tr><tr><td>Tax ID</td><td class="mono">${u.taxId||'-'}</td></tr>`:''}
+              <tr><td>ที่อยู่</td><td>${u.address||'-'}</td></tr>
+              <tr><td>สมัคร</td><td>${u.registeredAt?new Date(u.registeredAt).toLocaleDateString('th-TH'):'-'}</td></tr>
+            </table>
+          </div>
+          <div class="co-card" style="margin:0;background:linear-gradient(135deg,var(--brand),#ff6b3d);color:#fff">
+            <div style="font-size:12px;opacity:.9">ยอดสะสมทั้งหมด</div>
+            <div style="font-size:32px;font-weight:900;margin:6px 0">${money(totalSpent)}</div>
+            <div style="font-size:12px;opacity:.9">${orders.length} PO · ${bills.length} บิล</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="co-card" style="margin:0">
+            <h3 style="margin:0 0 12px">📋 คำสั่งซื้อ (PO) ${orders.length} รายการ</h3>
+            ${orders.length===0?'<div style="padding:20px;text-align:center;color:var(--text-muted)">ยังไม่มี</div>':`
+            <table class="admin-table"><thead><tr><th>PO</th><th>วันที่</th><th>สถานะ</th><th style="text-align:right">ยอด</th></tr></thead><tbody>
+              ${orders.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,50).map(o=>{
+                const st = STATUS_LABEL[o.status] || { color:'#666', th:o.status, icon:'•' };
+                return `<tr style="cursor:pointer" onclick="go('/admin/order/${o.po}')">
+                  <td class="mono" style="color:var(--brand);font-weight:700">${o.po}</td>
+                  <td style="font-size:11px">${new Date(o.createdAt).toLocaleDateString('th-TH')}</td>
+                  <td><span style="background:${st.color};color:#fff;padding:2px 8px;border-radius:99px;font-size:10px">${st.icon} ${st.th}</span></td>
+                  <td class="mono" style="text-align:right;font-weight:700">${money(o.total||0)}</td>
+                </tr>`;
+              }).join('')}
+            </tbody></table>`}
+          </div>
+          <div class="co-card" style="margin:0">
+            <h3 style="margin:0 0 12px">🧾 บิล ${bills.length} รายการ</h3>
+            ${bills.length===0?'<div style="padding:20px;text-align:center;color:var(--text-muted)">ยังไม่มี</div>':`
+            <table class="admin-table"><thead><tr><th>เลขที่</th><th>ประเภท</th><th>วันที่</th><th style="text-align:right">ยอด</th></tr></thead><tbody>
+              ${bills.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,50).map(b=>`<tr style="cursor:pointer" onclick="go('/admin/bill/${b.bl||b.po}')">
+                <td class="mono" style="color:var(--brand);font-weight:700">${b.bl||b.po}</td>
+                <td>${b.type==='tax'?'🏢 ใบกำกับ':'💵 เงินสด'}</td>
+                <td style="font-size:11px">${new Date(b.createdAt).toLocaleDateString('th-TH')}</td>
+                <td class="mono" style="text-align:right;font-weight:700">${money(b.total||0)}</td>
+              </tr>`).join('')}
+            </tbody></table>`}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function resetCustomerPassword(key) {
+    const newPw = prompt("ตั้งรหัสผ่านใหม่ให้ลูกค้า (อย่างน้อย 6 ตัว):", "");
+    if (!newPw || newPw.length < 6) { toast("ยกเลิก"); return; }
+    const idx = S.registeredUsers.findIndex(u => u.phone === key || u.email === key);
+    if (idx < 0) { toast("ลูกค้านี้ยังไม่มีบัญชีใน browser นี้ (บอกลูกค้าให้เข้ามาที่ browser ของ admin แล้ว reset ใหม่ · หรือแนะนำให้สมัครใหม่)"); return; }
+    S.registeredUsers[idx].password = btoa(newPw);
+    saveState();
+    toast(`✓ ตั้งรหัสใหม่แล้ว · แจ้งลูกค้า: ${newPw}`);
+  }
+
   function viewAdminCustomers() {
     if (S.sheetApiUrl && (Date.now() - (S.sheetCustLastSync||0)) > 10000) {
       pullCustomersFromSheet().then(() => { S.sheetCustLastSync = Date.now(); render(); }).catch(()=>{});
@@ -2916,7 +3881,8 @@
     });
     return `
       ${adminPageHeader('ลูกค้า (Customers)', '👥', `
-        <button class="btn btn-primary" onclick="pushAllCustomersToSheet()">↑ ส่งขึ้น Sheet (${(S.registeredUsers||[]).length})</button>
+        <button class="btn btn-primary" onclick="pushAllCustomersToSheet()">↑ Sync ขึ้น Sheet</button>
+        <button class="btn btn-outline" onclick="exportCustomersCsv()">📥 CSV</button>
         <button class="btn btn-outline" onclick="pullCustomersFromSheet().then(()=>render())">🔄 Refresh</button>
       `)}
       <div style="background:#e6f4ff;border:1px solid #91caff;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#003a75">
@@ -2936,9 +3902,9 @@
         <table class="admin-table">
           <thead><tr><th>ลูกค้า</th><th>ติดต่อ</th><th>ประเภท</th><th>ที่อยู่</th><th>สมัคร</th></tr></thead>
           <tbody>
-            ${list.map(u => `<tr>
+            ${list.map(u => `<tr style="cursor:pointer" onclick="go('/admin/customer/'+encodeURIComponent('${u.phone||u.email||''}'))">
               <td>
-                <div style="font-weight:700">${u.name || ((u.firstName||'')+' '+(u.lastName||''))}</div>
+                <div style="font-weight:700;color:var(--brand)">${u.name || ((u.firstName||'')+' '+(u.lastName||''))}</div>
                 ${u.isCorporate ? `<div style="font-size:11px;color:var(--gold);font-weight:600">🏢 ${u.company||'-'}</div>` : ''}
                 ${u.taxId ? `<div class="mono" style="font-size:11px;color:var(--text-muted)">Tax: ${u.taxId}</div>` : ''}
               </td>
@@ -2977,6 +3943,7 @@
     return `
       ${adminPageHeader('บิลขาย', '🧾', `
         <button class="btn btn-primary" onclick="go('/admin/create-bill')">➕ เปิดบิลใหม่</button>
+        <button class="btn btn-outline" onclick="exportBillsCsv(S.billsTab||'cash')">📥 CSV</button>
         <button class="btn btn-outline" onclick="pullBillsFromSheet().then(()=>render())">🔄 Refresh</button>
       `)}
       <div style="background:#fff3cd;border:1px solid #ffc107;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#7a5a00">
@@ -3071,15 +4038,16 @@
     return `
       ${adminPageHeader('คำสั่งซื้อ ' + o.po, '📄', `
         <button class="btn btn-outline" onclick="go('/admin/orders')">← กลับ</button>
-        <button class="btn btn-primary" onclick="issueBillFromOrder('${o.po}', false)">📤 ออกบิลเงินสด</button>
-        <button class="btn btn-primary" onclick="issueBillFromOrder('${o.po}', true)" style="background:var(--gold);color:#1a1a1a">🏢 ออกใบกำกับภาษี</button>
+        <button class="btn btn-primary" onclick="issueBillFromOrder('${o.po}', false)">📤 บิลเงินสด</button>
+        <button class="btn btn-primary" onclick="issueBillFromOrder('${o.po}', true)" style="background:var(--gold);color:#1a1a1a">🏢 ใบกำกับภาษี</button>
+        <button class="btn btn-outline" onclick="go('/admin/label/${o.po}')">🖨️ Label</button>
         <button class="btn btn-outline" onclick="go('/admin/bill/${o.po}')">👁️ ดู PO</button>
       `)}
       <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
         <div style="display:flex;flex-direction:column;gap:14px">
           <div class="co-card" style="margin:0">
-            <h3 style="margin:0 0 14px">📦 สินค้า (${o.items.length})</h3>
-            ${o.items.map(item => {
+            <h3 style="margin:0 0 14px">📦 สินค้า (${(o.items||[]).length})</h3>
+            ${(o.items||[]).map(item => {
               const p = EP.find(x => x.id === item.pid) || { name: item.pid, icon: '📦' };
               return `<div class="ord-line">
                 <div class="th">${p.cover?`<img src="${p.cover}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='${p.icon}'">`:p.icon}</div>
@@ -3436,6 +4404,14 @@
   async function issueBillFromOrder(po, asTax) {
     const o = (S.sheetOrders || S.orders || []).find(x => x.po === po);
     if (!o) { toast("ไม่พบคำสั่งซื้อ " + po); return; }
+    // Dedupe: ถ้ามีบิลจาก PO นี้แล้ว → ยืนยันก่อนออกใหม่
+    const existing = allBillsFlat().find(b => b.fromPO === po);
+    if (existing) {
+      if (!confirm(`PO ${po} ออกบิลแล้ว (${existing.bl||existing.po})\nต้องการออกเพิ่มอีก?`)) {
+        go('/admin/bill/' + (existing.bl||existing.po));
+        return;
+      }
+    }
     const cust = o.customer || {};
     if (asTax && !cust.taxId) {
       const tid = prompt("ลูกค้ายังไม่มี Tax ID — ใส่เลขผู้เสียภาษี 13 หลัก:", "");
@@ -3819,7 +4795,15 @@
               <select id="ae-cat">${catNames.map(c => `<option value="${c.id}" ${c.id===p.cat?'selected':''}>${c.name}</option>`).join('')}</select>
             </div>
             <div class="form-field"><label>สต็อกคงเหลือ</label><input id="ae-stock" type="number" min="0" value="${p.stock}"></div>
-            <div class="form-field wide"><label>URL รูปหลัก (cover)</label><input id="ae-cover" value="${p.cover||''}" placeholder="https://…"></div>
+            <div class="form-field wide"><label>URL รูปหลัก (cover)</label>
+              <div style="display:flex;gap:6px;align-items:center">
+                <input id="ae-cover" value="${p.cover||''}" placeholder="https://… หรืออัพจากเครื่อง" style="flex:1">
+                <input type="file" id="ae-cover-file" accept="image/*" style="display:none" onchange="uploadCoverFile(this)">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('ae-cover-file').click()" title="อัพผ่าน Cloudinary">☁️ อัพ</button>
+              </div>
+              ${!S.cloudinaryCloud?`<div style="font-size:11px;color:#f59e0b;margin-top:4px">⚠️ ยังไม่ตั้งค่า Cloudinary — <a onclick="go('/admin/settings')" style="color:var(--brand);cursor:pointer">ตั้งค่าที่นี่</a></div>`:''}
+              <div id="ae-cover-preview" style="margin-top:8px">${p.cover?`<img src="${p.cover}" style="max-width:120px;border-radius:8px">`:''}</div>
+            </div>
             <div class="form-field wide"><label>คำอธิบาย</label><textarea id="ae-desc" rows="4" placeholder="รายละเอียดสินค้า">${p.desc||''}</textarea></div>
           </div>
         </div>
@@ -3855,6 +4839,17 @@
         </div>
       </div>
     `;
+  }
+
+  async function uploadCoverFile(inp) {
+    const f = inp.files && inp.files[0]; if (!f) return;
+    toast("⏳ อัพรูปขึ้น Cloudinary...");
+    const url = await uploadToCloudinary(f);
+    if (url) {
+      document.getElementById('ae-cover').value = url;
+      document.getElementById('ae-cover-preview').innerHTML = `<img src="${url}" style="max-width:120px;border-radius:8px">`;
+      toast("✓ อัพรูปสำเร็จ");
+    }
   }
 
   async function adminSave(pid, isNew) {
@@ -4036,11 +5031,15 @@
         ${o.status === 'pending_payment' && o.payment === 'qr' ? `
         <div class="qr-card">
           <h3>📱 สแกน QR เพื่อจ่าย</h3>
-          <div class="sub">ผ่าน mobile banking ทุกธนาคาร</div>
-          <div class="qr-img"><div></div></div>
+          <div class="sub">พร้อมเพย์ · ผ่าน mobile banking ทุกธนาคาร</div>
+          <div style="background:#fff;padding:12px;border-radius:12px;display:inline-block;margin:12px auto;box-shadow:var(--shadow)">
+            <img src="https://promptpay.io/${(S.promptPayId||'0812345678').replace(/[-\s]/g,'')}/${o.total}.png"
+              alt="QR PromptPay ${money(o.total)}" style="width:220px;height:220px;display:block"
+              onerror="this.parentNode.innerHTML='<div style=&quot;width:220px;height:220px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px&quot;>QR error — โอนไปที่ '+(S.promptPayId||'-')+'</div>'">
+          </div>
           <div class="qr-amount">${money(o.total)}</div>
-          <div class="qr-info">พร้อมเพย์ <b style="color:var(--text)">013-xxxxxx7</b></div>
-          <div class="qr-timer">หมดเขต <b>29:47</b> นาที</div>
+          <div class="qr-info">พร้อมเพย์ <b style="color:var(--text)">${S.promptPayId||'-'}</b></div>
+          <div class="qr-info" style="font-size:11px;color:var(--text-muted)">${S.shopName||'iamplastic'}</div>
           <button class="btn btn-primary btn-block btn-big" style="margin-top:16px" onclick="go('/upload-slip/${o.po}')">📸 แจ้งโอนแล้ว (แนบสลิป) →</button>
         </div>
         ` : o.status === 'pending_payment' ? `
@@ -4057,6 +5056,13 @@
             <div style="margin-bottom:8px"><b style="color:var(--text)">📍 จัดส่งไปที่</b></div>
             <div style="line-height:1.6">${(o.customer||{}).name||'-'} · ${(o.customer||{}).phone||'-'}<br>${(o.customer||{}).address||'-'}</div>
           </div>
+          ${o.status === 'delivered' ? `<div style="margin-top:12px;text-align:center">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">รู้สึกยังไงบ้าง? รีวิวได้เลย</div>
+            ${(o.items||[]).map(it => {
+              const p = EP.find(x=>x.id===it.pid); if (!p) return '';
+              return `<button class="btn btn-outline" style="margin:2px;font-size:11px" onclick="submitReview('${it.pid}','${o.po}')">⭐ รีวิว ${(p.name||'').slice(0,20)}</button>`;
+            }).join('')}
+          </div>` : ''}
         </div>
         `}
 
