@@ -1210,9 +1210,12 @@
   // =======================================================
   // Google Sheet API sync
   // =======================================================
-  async function apiCall(action, extra = {}, isPost = false) {
+  async function apiCall(action, extra = {}, isPost = false, timeoutMs = 25000) {
     if (!S.sheetApiUrl) throw new Error("ยังไม่ได้ตั้งค่า Sheet API URL");
     let r, rawText;
+    // กันค้าง — ถ้า Apps Script ไม่ตอบภายในเวลาที่กำหนด ให้ล้มเลิก
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       if (isPost) {
         const body = JSON.stringify({ action, token: S.sheetToken, ...extra });
@@ -1222,12 +1225,13 @@
           mode: "cors",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
           body,
+          signal: ctrl.signal,
         });
       } else {
         const u = new URL(S.sheetApiUrl);
         u.searchParams.set("action", action);
         Object.entries(extra).forEach(([k, v]) => u.searchParams.set(k, v));
-        r = await fetch(u.toString(), { redirect: "follow", mode: "cors" });
+        r = await fetch(u.toString(), { redirect: "follow", mode: "cors", signal: ctrl.signal });
       }
       rawText = await r.text();
       console.log(`[apiCall ${action}] status=${r.status} body:`, rawText.substring(0, 200));
@@ -1237,8 +1241,14 @@
         return { ok: false, error: `Response not JSON (status ${r.status}): ${rawText.substring(0, 100)}` };
       }
     } catch (netErr) {
+      if (netErr.name === 'AbortError') {
+        console.error(`[apiCall ${action}] timeout ${timeoutMs}ms`);
+        return { ok: false, error: `หมดเวลารอ ${Math.round(timeoutMs/1000)} วินาที — Apps Script ไม่ตอบ` };
+      }
       console.error(`[apiCall ${action}] network error:`, netErr);
       return { ok: false, error: `Network: ${netErr.message}` };
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -1724,6 +1734,17 @@
     autoLoadFromSheet();
     // LIFF init (ถ้าตั้งค่า)
     if (S.liffId) initLIFF();
+
+    // กลับมาที่แท็บนี้ → ดึงคลิป/ตั้งค่าใหม่ (กันสองแท็บข้อมูลไม่ตรงกัน)
+    let _lastFocusSync = Date.now();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - _lastFocusSync < 15000) return; // กันยิงถี่เกิน
+      _lastFocusSync = Date.now();
+      if (!S.sheetApiUrl) return;
+      pullPromosFromSheet().then(()=>render()).catch(()=>{});
+      pullSettingsFromSheet().then(()=>render()).catch(()=>{});
+    });
     // GA4 inject (ถ้าตั้งค่า)
     if (S.gaTagId && S.gaTagId.startsWith('G-')) {
       const s = document.createElement('script');
@@ -2694,6 +2715,9 @@
   // =======================================================
   // AUTH — Login (Admin + Customer)
   // =======================================================
+  // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
+  const APP_VERSION = 41;
+
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
   const ADMIN_PASSWORD = "admin2026";
@@ -3249,14 +3273,18 @@
   // Auto-load products from Sheet on page load
   async function autoLoadFromSheet() {
     if (!S.sheetApiUrl) return;
-    const staleness = Date.now() - (S.sheetLastSync || 0);
-    if (staleness < 5 * 60 * 1000 && S.sheetProducts) return;
-    await pullProductsFromSheet();
-    // Load coupons + reviews + promos in background (silent)
-    pullCouponsFromSheet().catch(()=>{});
-    pullReviewsFromSheet().catch(()=>{});
+
+    // ของเบา (คลิป / ตั้งค่า / คูปอง / รีวิว) — ดึงใหม่ "ทุกครั้ง" ที่เปิดหน้า
+    // เดิมถูก return ทิ้งไปพร้อมกับสินค้า ทำให้แท็บที่เปิดทีหลังเห็นข้อมูลเก่าค้าง
     pullPromosFromSheet().then(()=>render()).catch(()=>{});
     pullSettingsFromSheet().then(()=>render()).catch(()=>{});
+    pullCouponsFromSheet().catch(()=>{});
+    pullReviewsFromSheet().catch(()=>{});
+
+    // สินค้า 271 รายการ — หนัก จึงข้ามได้ถ้าเพิ่ง sync มาไม่เกิน 5 นาที
+    const staleness = Date.now() - (S.sheetLastSync || 0);
+    if (staleness < 5 * 60 * 1000 && S.sheetProducts) { render(); return; }
+    await pullProductsFromSheet();
     render();
   }
 
@@ -3265,7 +3293,7 @@
       <div class="admin-header">
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
           <div style="font-size:24px">${icon || '🔧'}</div>
-          <div style="flex:1"><h1 style="margin:0;font-size:22px">${title}</h1><div style="font-size:12px;color:var(--text-muted)">${S.sheetApiUrl ? `<span style="color:var(--wholesale)">🔗 Sheet เชื่อมแล้ว</span>${S.sheetLastSync ? ` · sync ล่าสุด ${new Date(S.sheetLastSync).toLocaleString('th-TH')}` : ''}<br><span style="font-family:monospace;font-size:10px;opacity:.7">deploy: ...${esc((S.sheetApiUrl.match(/\/s\/([^\/]+)\//)||[,''])[1].slice(-12))} <a onclick="go('/admin/settings')" style="color:var(--brand);cursor:pointer">เปลี่ยน</a></span>` : '<span style="color:var(--brand)">⚠️ ยังไม่เชื่อม Sheet</span>'}</div></div>
+          <div style="flex:1"><h1 style="margin:0;font-size:22px">${title}</h1><div style="font-size:12px;color:var(--text-muted)">${S.sheetApiUrl ? `<span style="color:var(--wholesale)">🔗 Sheet เชื่อมแล้ว</span>${S.sheetLastSync ? ` · sync ล่าสุด ${new Date(S.sheetLastSync).toLocaleString('th-TH')}` : ''}<br><span style="font-family:monospace;font-size:10px;opacity:.7">เว็บ v${APP_VERSION} · deploy: ...${esc((S.sheetApiUrl.match(/\/s\/([^\/]+)\//)||[,''])[1].slice(-10))} <a onclick="go('/admin/settings')" style="color:var(--brand);cursor:pointer">เปลี่ยน</a></span>` : '<span style="color:var(--brand)">⚠️ ยังไม่เชื่อม Sheet</span>'}</div></div>
           ${extra}
         </div>
       </div>
@@ -3625,14 +3653,21 @@
     S.banners.splice(i,1); saveState(); savePromosToSheet(); render();
   }
 
+  let _lastTiktokError = '';
   async function fetchTiktokMeta(url) {
-    if (!S.sheetApiUrl) return null;
+    _lastTiktokError = '';
+    if (!S.sheetApiUrl) { _lastTiktokError = 'ยังไม่ได้เชื่อม Sheet'; return null; }
     try {
-      const res = await apiCall("oembedTiktok", { videoUrl: url });
+      const res = await apiCall("oembedTiktok", { videoUrl: url }, false, 25000);
       if (res && res.ok) return res;
-      console.error("[tiktok oembed]", res && res.error);
+      _lastTiktokError = (res && res.error) || 'ไม่ทราบสาเหตุ';
+      console.error("[tiktok oembed]", res);
       return null;
-    } catch (e) { console.error("[tiktok oembed]", e); return null; }
+    } catch (e) {
+      _lastTiktokError = String(e.message||e);
+      console.error("[tiktok oembed]", e);
+      return null;
+    }
   }
 
   async function addTiktokVideo() {
@@ -3660,8 +3695,10 @@
       v.title = meta.title || v.title;
       v.thumbnail = meta.thumbnail || v.thumbnail;
       v.author = meta.author || v.author;
+      // อัปเกรดลิงก์สั้นเป็น URL เต็ม → เล่นในเว็บได้
+      if (meta.resolved && /\/video\/\d+/.test(meta.resolved)) v.url = meta.resolved;
       saveState(); savePromosToSheet(); toast("✓ อัพเดตแล้ว"); render();
-    } else { toast("❌ ดึงไม่ได้"); }
+    } else { toast("❌ ดึงไม่ได้: " + (_lastTiktokError||'')); }
   }
 
   async function editTiktok(i) {
@@ -4061,7 +4098,7 @@
     // อ่านเวอร์ชัน backend จาก ping
     let backendVer = null;
     try { const p = await apiCall('ping'); backendVer = (p && p.version) || null; } catch(e){}
-    const EXPECTED_BACKEND = 37;
+    const EXPECTED_BACKEND = 41;
 
     const failed = results.filter(r => !r.ok);
     const allOk = failed.length === 0 && backendVer === EXPECTED_BACKEND;
@@ -4073,12 +4110,13 @@
         <div style="font-weight:800;font-size:15px;margin-bottom:6px;color:${allOk?'#0B7A3E':'#7a5a00'}">
           ${allOk ? '✅ Backend เป็นเวอร์ชันล่าสุด — ทุกฟีเจอร์พร้อมใช้'
                   : (backendVer === null ? '⚠️ Backend เป็นเวอร์ชันเก่ามาก (ไม่บอกเวอร์ชัน)'
-                     : backendVer !== 37 ? `⚠️ Backend เป็น v${backendVer} — ต้องการ v37`
+                     : backendVer !== EXPECTED_BACKEND ? `⚠️ Backend เป็น v${backendVer} — ต้องการ v${EXPECTED_BACKEND}`
                      : `⚠️ มี ${failed.length} ฟีเจอร์ใช้ไม่ได้`)}
         </div>
         <div style="font-size:12px;margin-bottom:10px;color:var(--text-muted);font-family:monospace">
-          Code.gs ที่ deploy: <b>${backendVer ? 'v'+backendVer : 'ต่ำกว่า v37'}</b> · ต้องการ: <b>v37</b>
-          ${backendVer === 37 ? ' <span style="color:#0B7A3E">✓ ตรง</span>' : ' <span style="color:#DC2626">✗ ไม่ตรง</span>'}
+          index.html ที่ browser โหลด: <b>v${APP_VERSION}</b><br>
+          Code.gs ที่ deploy: <b>${backendVer ? 'v'+backendVer : 'เก่ากว่า v37'}</b> · ต้องการ: <b>v${EXPECTED_BACKEND}</b>
+          ${backendVer === EXPECTED_BACKEND ? ' <span style="color:#0B7A3E">✓ ตรง</span>' : ' <span style="color:#DC2626">✗ ไม่ตรง</span>'}
         </div>
         <table style="width:100%;font-size:13px;border-collapse:collapse">
           ${results.map(r => `<tr style="border-bottom:1px solid rgba(0,0,0,.06)">
@@ -4237,14 +4275,24 @@
       return;
     }
 
-    box.innerHTML = `<div style="padding:16px;text-align:center;color:var(--text-muted)">⏳ กำลังดึงข้อมูลจาก TikTok...</div>`;
+    // นับเวลาให้เห็นว่ายังทำงานอยู่ ไม่ใช่ค้าง
+    let secs = 0;
+    box.innerHTML = `<div style="padding:16px;text-align:center;color:var(--text-muted)">⏳ กำลังดึงข้อมูลจาก TikTok... <span id="tt-timer">0</span> วินาที</div>`;
+    const tick = setInterval(() => {
+      const t = document.getElementById('tt-timer');
+      if (t) t.textContent = String(++secs);
+    }, 1000);
+
     const meta = await fetchTiktokMeta(url.trim());
+    clearInterval(tick);
+
     if (!meta) {
       box.innerHTML = `
         <div style="background:#fff3cd;border:1px solid #ffc107;padding:12px;border-radius:8px;font-size:13px;color:#7a5a00;margin-bottom:10px;line-height:1.7">
-          ⚠️ <b>ดึงอัตโนมัติไม่ได้</b> — สาเหตุที่เป็นไปได้:<br>
+          ⚠️ <b>ดึงอัตโนมัติไม่ได้</b>${_lastTiktokError?`<br><code style="font-size:11px;background:#fff;padding:2px 6px;border-radius:3px;word-break:break-all">${esc(_lastTiktokError)}</code>`:''}<br>
+          สาเหตุที่เป็นไปได้:<br>
+          • Apps Script ยังไม่ deploy v41 (เช็คที่ ตั้งค่า → 🔬 ตรวจสอบระบบ)<br>
           • คลิปตั้งเป็น <b>ส่วนตัว</b> หรือถูกลบ<br>
-          • Apps Script ยังไม่ redeploy (เช็คที่ ตั้งค่า → 🔬 ตรวจสอบระบบ)<br>
           • TikTok จำกัดการเรียก (ลองใหม่อีก 1 นาที)<br>
           <b>กรอกเองได้เลยด้านล่าง ↓</b>
         </div>
@@ -4263,14 +4311,19 @@
           <input id="tt-title" value="${esc(meta.title||'').replace(/"/g,'&quot;')}" placeholder="Caption"
             style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:6px">
           <input id="tt-thumb" value="${esc(meta.thumbnail||'')}" style="display:none">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${esc(meta.author||'')}</div>
+          <input id="tt-resolved" value="${esc(meta.resolved||'')}" style="display:none">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${esc(meta.author||'')}
+            ${meta.videoId ? '<span style="color:var(--success)"> · ▶ เล่นในเว็บได้</span>' : '<span style="color:#f59e0b"> · เล่นในเว็บไม่ได้</span>'}</div>
           <button class="btn btn-primary" onclick="confirmAddTiktok()">✓ ลงคลิปนี้</button>
         </div>
       </div>`;
   }
 
   function confirmAddTiktok() {
-    const url = (document.getElementById('tt-url')||{}).value.trim();
+    const typed = (document.getElementById('tt-url')||{}).value.trim();
+    const resolved = (document.getElementById('tt-resolved')||{}).value || '';
+    // ใช้ URL เต็มที่แกะจากลิงก์สั้น ถ้ามี — จะได้เล่นในเว็บได้
+    const url = (resolved && /\/video\/\d+/.test(resolved)) ? resolved : typed;
     const title = (document.getElementById('tt-title')||{}).value || '';
     const thumbnail = (document.getElementById('tt-thumb')||{}).value || '';
     if (!url) return;
