@@ -1210,16 +1210,30 @@
   // =======================================================
   // Google Sheet API sync
   // =======================================================
+  // อ่าน URL/token จาก localStorage ทุกครั้ง — แท็บที่เปิดค้างไว้จะได้ไม่ถือค่าเก่า
+  // (เคยเจอ: แท็บเก่ายิงไป deployment เดิม เห็นข้อมูลคนละชุดกับแท็บใหม่)
+  function liveSheetConfig() {
+    const url = safeGet("iamplastic.sheetApiUrl", "") || S.sheetApiUrl;
+    const token = safeGet("iamplastic.sheetToken", "") || S.sheetToken;
+    if (url && url !== S.sheetApiUrl) {
+      console.warn("[config] URL เปลี่ยนจากแท็บอื่น — ใช้ค่าใหม่");
+      S.sheetApiUrl = url;
+    }
+    if (token && token !== S.sheetToken) S.sheetToken = token;
+    return { url: S.sheetApiUrl, token: S.sheetToken };
+  }
+
   async function apiCall(action, extra = {}, isPost = false, timeoutMs = 25000) {
-    if (!S.sheetApiUrl) throw new Error("ยังไม่ได้ตั้งค่า Sheet API URL");
+    const cfg = liveSheetConfig();
+    if (!cfg.url) throw new Error("ยังไม่ได้ตั้งค่า Sheet API URL");
     let r, rawText;
     // กันค้าง — ถ้า Apps Script ไม่ตอบภายในเวลาที่กำหนด ให้ล้มเลิก
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       if (isPost) {
-        const body = JSON.stringify({ action, token: S.sheetToken, ...extra });
-        r = await fetch(S.sheetApiUrl, {
+        const body = JSON.stringify({ action, token: cfg.token, ...extra });
+        r = await fetch(cfg.url, {
           method: "POST",
           redirect: "follow",
           mode: "cors",
@@ -1228,7 +1242,7 @@
           signal: ctrl.signal,
         });
       } else {
-        const u = new URL(S.sheetApiUrl);
+        const u = new URL(cfg.url);
         u.searchParams.set("action", action);
         Object.entries(extra).forEach(([k, v]) => u.searchParams.set(k, v));
         r = await fetch(u.toString(), { redirect: "follow", mode: "cors", signal: ctrl.signal });
@@ -1717,6 +1731,40 @@
     location.hash = "#" + path;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+  // แท็บอื่นเขียน localStorage → อัปเดตแท็บนี้ตาม
+  // (แต่ละแท็บมีสำเนา S ของตัวเอง ถ้าไม่ฟังจะเห็นข้อมูลคนละชุด)
+  window.addEventListener("storage", (e) => {
+    if (!e.key || e.key.indexOf("iamplastic.") !== 0) return;
+    const prop = e.key.slice("iamplastic.".length);
+    if (!(prop in S)) return;
+    try {
+      S[prop] = e.newValue ? JSON.parse(e.newValue) : S[prop];
+      if (prop === 'sheetApiUrl') {
+        toast("🔗 URL เปลี่ยนจากแท็บอื่น — กำลังดึงข้อมูลใหม่");
+        pullPromosFromSheet().catch(()=>{});
+        pullSettingsFromSheet().catch(()=>{});
+      }
+      render();
+    } catch (err) { console.warn("[storage sync]", prop, err); }
+  });
+
+  // เตือนถ้าแท็บนี้รันโค้ดเก่ากว่าที่ deploy อยู่ (เปิดค้างไว้ข้ามการอัปเดต)
+  async function checkAppFresh() {
+    try {
+      const r = await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' });
+      const txt = await r.text();
+      const m = txt.match(/const APP_VERSION = (\d+)/);
+      const live = m ? Number(m[1]) : null;
+      if (live && live > APP_VERSION) {
+        const bar = document.createElement('div');
+        bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:3000;background:#AB2739;color:#fff;padding:12px 16px;font-size:13px;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap';
+        bar.innerHTML = `⚠️ แท็บนี้ใช้เว็บเวอร์ชันเก่า (v${APP_VERSION}) · เวอร์ชันล่าสุดคือ v${live}
+          <button onclick="location.reload(true)" style="background:#fff;color:#AB2739;border:none;padding:6px 16px;border-radius:99px;font-weight:800;cursor:pointer;font-family:inherit">🔄 โหลดใหม่</button>`;
+        document.body.appendChild(bar);
+      }
+    } catch (e) { /* offline — ข้ามไป */ }
+  }
+
   window.addEventListener("hashchange", () => {
     closeTiktok();
     render();
@@ -1734,6 +1782,7 @@
     autoLoadFromSheet();
     // LIFF init (ถ้าตั้งค่า)
     if (S.liffId) initLIFF();
+    setTimeout(checkAppFresh, 3000);
 
     // กลับมาที่แท็บนี้ → ดึงคลิป/ตั้งค่าใหม่ (กันสองแท็บข้อมูลไม่ตรงกัน)
     let _lastFocusSync = Date.now();
@@ -1744,6 +1793,10 @@
       if (!S.sheetApiUrl) return;
       pullPromosFromSheet().then(()=>render()).catch(()=>{});
       pullSettingsFromSheet().then(()=>render()).catch(()=>{});
+      // อยู่หน้า admin ลูกค้า → ดึงรายชื่อใหม่ด้วย
+      if (isAdmin() && currentRoute().indexOf('/admin/customer') === 0) {
+        pullCustomersFromSheet().then(()=>render()).catch(()=>{});
+      }
     });
     // GA4 inject (ถ้าตั้งค่า)
     if (S.gaTagId && S.gaTagId.startsWith('G-')) {
@@ -2716,7 +2769,7 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 41;
+  const APP_VERSION = 45;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -3108,7 +3161,10 @@
     // Push to Sheet if configured (fire-and-forget)
     if (S.sheetApiUrl && S.autoSync) {
       pushCustomerToSheet(userData).then(ok => {
-        if (!ok) console.error("[register] ไม่ได้ขึ้น Sheet — Apps Script อาจยังไม่ redeploy");
+        if (ok) { safeSet('iamplastic.meSynced', Date.now()); return; }
+        console.error("[register] ไม่ได้ขึ้น Sheet");
+        // แจ้งเฉพาะ admin — ลูกค้าไม่ต้องรับรู้เรื่องเทคนิค (ข้อมูลอยู่ในเครื่องแล้ว จะ sync ให้อัตโนมัติทีหลัง)
+        if (isAdmin()) setTimeout(() => toast("⚠️ สมัครสำเร็จ แต่ยังไม่ขึ้น Sheet — เช็ค Token ที่ ตั้งค่า"), 2000);
       });
     }
 
@@ -3127,6 +3183,23 @@
       console.error("pushCustomerToSheet:", e);
       return false;
     }
+  }
+
+  // ลูกค้าที่สมัครตอน Sheet ยังต่อไม่ติด จะค้างอยู่แค่ในเครื่องตัวเอง
+  // ให้เครื่องนั้นดันข้อมูลตัวเองขึ้น Sheet อัตโนมัติ (upsert — ยิงซ้ำไม่เกิดแถวซ้ำ)
+  async function syncMyAccountToSheet() {
+    if (!S.sheetApiUrl || !S.user || S.user.role !== 'customer') return;
+    const me = S.registeredUsers.find(u =>
+      (S.user.email && u.email === S.user.email) ||
+      (S.user.phone && u.phone === S.user.phone)
+    ) || S.user;
+    if (!me || (!me.email && !me.phone)) return;
+    // ยิงวันละครั้งพอ ไม่ต้องยิงทุกครั้งที่เปิดหน้า
+    const key = 'iamplastic.meSynced';
+    const last = safeGet(key, 0);
+    if (Date.now() - last < 12 * 60 * 60 * 1000) return;
+    const ok = await pushCustomerToSheet(me);
+    if (ok) { safeSet(key, Date.now()); console.log("[account] ดันข้อมูลตัวเองขึ้น Sheet แล้ว"); }
   }
 
   async function pullCustomersFromSheet() {
@@ -3157,12 +3230,16 @@
     // ตัด password ออกก่อนส่ง (ไม่ควรเก็บ password ใน Sheet)
     const clean = users.map(u => { const { password, ...rest } = u; return rest; });
     try {
-      const res = await apiCall("bulkUpsertCustomers", { data: clean }, true);
+      const res = await apiCall("bulkUpsertCustomers", { data: clean }, true, 45000);
       if (res && res.ok) {
         toast(`✓ ส่ง ${res.count} ลูกค้าขึ้น Sheet แล้ว`);
-        pullCustomersFromSheet().then(()=>render());
+        await pullCustomersFromSheet();
+        render();
       } else {
-        toast("❌ ส่งไม่สำเร็จ: " + ((res && res.error) || ''));
+        const err = String((res && res.error) || '');
+        toast(err.includes('unauthorized')
+          ? "❌ ส่งไม่สำเร็จ — Secret Token ผิด (ไปที่ ตั้งค่า)"
+          : "❌ ส่งไม่สำเร็จ: " + (err || 'ไม่ทราบสาเหตุ'));
       }
     } catch (e) {
       toast("❌ ส่งไม่สำเร็จ: " + e.message);
@@ -3280,6 +3357,7 @@
     pullSettingsFromSheet().then(()=>render()).catch(()=>{});
     pullCouponsFromSheet().catch(()=>{});
     pullReviewsFromSheet().catch(()=>{});
+    syncMyAccountToSheet().catch(()=>{});
 
     // สินค้า 271 รายการ — หนัก จึงข้ามได้ถ้าเพิ่ง sync มาไม่เกิน 5 นาที
     const staleness = Date.now() - (S.sheetLastSync || 0);
@@ -3908,10 +3986,14 @@
   // BACKEND CHECK — บอกว่า Apps Script deploy version ใหม่หรือยัง
   // =========================
   // ทดสอบเขียนจริงลง Sheet แล้วโชว์คำตอบดิบ — ใช้หาสาเหตุตอน "ข้อมูลไม่ขึ้น Sheet"
-  async function runWriteTest() {
+  function setWriteTest(html) {
+    S._writeTestHtml = html;
     const box = document.getElementById('write-test');
-    if (!box) return;
-    if (!S.sheetApiUrl) { box.innerHTML = `<div style="margin-top:10px;padding:12px;background:#fde8e8;border:1px solid #f5a3a3;border-radius:8px;font-size:13px">❌ ยังไม่ได้ตั้ง URL</div>`; return; }
+    if (box) box.innerHTML = html;
+  }
+
+  async function runWriteTest() {
+    if (!S.sheetApiUrl) { setWriteTest(`<div style="margin-top:10px;padding:12px;background:#fde8e8;border:1px solid #f5a3a3;border-radius:8px;font-size:13px">❌ ยังไม่ได้ตั้ง URL</div>`); return; }
 
     const stamp = new Date().toLocaleTimeString('th-TH');
     const testData = {
@@ -3922,7 +4004,7 @@
       registeredAt: new Date().toISOString(),
     };
 
-    box.innerHTML = `<div style="margin-top:10px;padding:12px;color:var(--text-muted);font-size:13px">⏳ กำลังเขียนแถวทดสอบ...</div>`;
+    setWriteTest(`<div style="margin-top:10px;padding:12px;background:var(--surface-warm);border-radius:8px;color:var(--text-muted);font-size:13px">⏳ กำลังเขียนแถวทดสอบ...</div>`);
 
     const lines = [];
     const add = (ok, txt) => lines.push(`<div style="display:flex;gap:8px;padding:3px 0;font-size:13px"><span>${ok===null?'•':(ok?'✅':'❌')}</span><span style="flex:1">${txt}</span></div>`);
@@ -3980,7 +4062,7 @@
 
     const bg = (wrote && found) ? '#e6f7ed' : wrote ? '#fff3cd' : '#fde8e8';
     const bd = (wrote && found) ? '#8ed9ae' : wrote ? '#ffc107' : '#f5a3a3';
-    box.innerHTML = `<div style="margin-top:10px;background:${bg};border:1px solid ${bd};padding:12px 14px;border-radius:8px">${lines.join('')}${verdict}</div>`;
+    setWriteTest(`<div style="margin-top:10px;background:${bg};border:1px solid ${bd};padding:12px 14px;border-radius:8px">${lines.join('')}${verdict}</div>`);
   }
 
   async function testLiff() {
@@ -4079,14 +4161,19 @@
     setTimeout(runBackendCheck, 100);
   }
 
-  async function runBackendCheck() {
+  // เก็บผลไว้ใน state ไม่ใช่เขียน DOM ตรงๆ — กันโดน render() เบื้องหลังล้างทิ้ง
+  function setDiag(html) {
+    S._diagHtml = html;
     const box = document.getElementById('backend-check');
-    if (!box) return;
+    if (box) box.innerHTML = html;
+  }
+
+  async function runBackendCheck() {
     if (!S.sheetApiUrl) {
-      box.innerHTML = `<div style="background:#fde8e8;border:1px solid #f5a3a3;padding:14px;border-radius:10px;margin-bottom:16px">❌ ยังไม่ได้ตั้ง Sheet API URL</div>`;
+      setDiag(`<div style="background:#fde8e8;border:1px solid #f5a3a3;padding:14px;border-radius:10px;margin-bottom:16px">❌ ยังไม่ได้ตั้ง Sheet API URL</div>`);
       return;
     }
-    box.innerHTML = `<div style="padding:16px;text-align:center;color:var(--text-muted)">⏳ กำลังตรวจสอบ backend...</div>`;
+    setDiag(`<div style="background:var(--surface-warm);border:1px solid var(--border);padding:16px;border-radius:10px;margin-bottom:16px;text-align:center;color:var(--text-muted)">⏳ กำลังตรวจสอบ backend... (ใช้เวลาถึง 30 วินาที)</div>`);
 
     // action → ฟีเจอร์ที่ต้องใช้ + เวอร์ชันที่เพิ่มมา
     const checks = [
@@ -4099,21 +4186,33 @@
       { action: 'settings',  label: 'ตั้งค่าร้าน (เบอร์/บัญชี)', need: 'v29' },
     ];
 
+    // ต้องยิงทีละอัน — Apps Script ประมวลผลทีละคำขอต่อผู้ใช้
+    // ถ้ายิงพร้อมกัน ตัวที่หนัก (สินค้า 271 รายการ) จะติดคิวจนหมดเวลา
     const results = [];
+    const total = checks.length + 1;
     for (const c of checks) {
+      // สินค้าเป็นก้อนใหญ่สุด ให้เวลามากกว่า
+      const ms = c.action === 'list' ? 45000 : 20000;
       try {
-        const res = await apiCall(c.action);
+        const res = await apiCall(c.action, {}, false, ms);
         results.push({ ...c, ok: !!(res && res.ok), err: res && res.error });
       } catch (e) {
         results.push({ ...c, ok: false, err: String(e.message||e) });
       }
+      // แสดงความคืบหน้าระหว่างรอ
+      setDiag(`<div style="background:var(--surface-warm);border:1px solid var(--border);padding:14px 16px;border-radius:10px;margin-bottom:16px">
+        <div style="font-weight:700;margin-bottom:8px">⏳ กำลังตรวจสอบ ${results.length}/${total}</div>
+        ${results.map(r => `<div style="font-size:13px;padding:3px 0">${r.ok?'✅':'❌'} ${r.label}</div>`).join('')}
+        <div style="font-size:12px;color:var(--text-muted);margin-top:6px">กำลังเช็ค: ${esc((checks[results.length]||{}).label || 'รหัสแอดมิน')}...</div>
+      </div>`);
     }
-    // getAdmin เป็น POST (ต้องมี token) — เช็คแยก
+    // getAdmin เป็น POST (ต้องมี token) — เช็คว่า token ถูกด้วย
     try {
-      const res = await apiCall('getAdmin', {}, true);
-      results.push({ action:'getadmin', label:'รหัสแอดมิน (admin)', need:'v33', ok: !!(res && res.ok) });
+      const res = await apiCall('getAdmin', {}, true, 20000);
+      results.push({ action:'getadmin', label:'รหัสแอดมิน (admin) · เช็ค token', need:'v33',
+        ok: !!(res && res.ok), err: res && res.error });
     } catch (e) {
-      results.push({ action:'getadmin', label:'รหัสแอดมิน (admin)', need:'v33', ok:false });
+      results.push({ action:'getadmin', label:'รหัสแอดมิน (admin) · เช็ค token', need:'v33', ok:false, err:String(e.message||e) });
     }
 
     // อ่านเวอร์ชัน backend จาก ping
@@ -4126,8 +4225,13 @@
     // หา version ต่ำสุดที่ fail → บอกว่า deploy ค้างอยู่รุ่นไหน
     const oldestFail = failed.length ? failed[0].need : null;
 
-    box.innerHTML = `
+    const tokenBad = results.some(r => r.action === 'getadmin' && String(r.err||'').includes('unauthorized'));
+    setDiag(`
       <div style="background:${allOk?'#e6f7ed':'#fff3cd'};border:1px solid ${allOk?'#8ed9ae':'#ffc107'};padding:14px 16px;border-radius:10px;margin-bottom:16px">
+        ${tokenBad ? `<div style="background:#fde8e8;border:1px solid #f5a3a3;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#b02a2a">
+          🔑 <b>Secret Token ไม่ตรงกับ Code.gs</b> — ต้องเป็น <code style="background:#fff;padding:1px 5px;border-radius:3px">iamplastic_secret_2026</code>
+          <button class="btn btn-primary" style="display:block;margin-top:8px;font-size:12px" onclick="fixSheetToken()">🔧 แก้ให้อัตโนมัติ</button>
+        </div>` : ''}
         <div style="font-weight:800;font-size:15px;margin-bottom:6px;color:${allOk?'#0B7A3E':'#7a5a00'}">
           ${allOk ? '✅ Backend เป็นเวอร์ชันล่าสุด — ทุกฟีเจอร์พร้อมใช้'
                   : (backendVer === null ? '⚠️ Backend เป็นเวอร์ชันเก่ามาก (ไม่บอกเวอร์ชัน)'
@@ -4141,12 +4245,20 @@
         </div>
         <table style="width:100%;font-size:13px;border-collapse:collapse">
           ${results.map(r => `<tr style="border-bottom:1px solid rgba(0,0,0,.06)">
-            <td style="padding:6px 0;width:28px">${r.ok?'✅':'❌'}</td>
-            <td style="padding:6px 0">${r.label}</td>
-            <td style="padding:6px 0;text-align:right;font-size:11px;color:var(--text-muted)">${r.ok?'ใช้ได้':'ต้องการ '+r.need}</td>
+            <td style="padding:6px 0;width:28px;vertical-align:top">${r.ok?'✅':'❌'}</td>
+            <td style="padding:6px 0">${r.label}
+              ${!r.ok && r.err ? `<div style="font-size:11px;color:#b02a2a;margin-top:3px;word-break:break-all">${esc(String(r.err).slice(0,160))}</div>` : ''}
+            </td>
+            <td style="padding:6px 0;text-align:right;font-size:11px;color:var(--text-muted);vertical-align:top;white-space:nowrap">${r.ok?'ใช้ได้':'ต้องการ '+r.need}</td>
           </tr>`).join('')}
         </table>
-        ${allOk ? '' : `
+        ${allOk ? '' : (backendVer === EXPECTED_BACKEND ? `
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,0,0,.1);font-size:13px;color:#0B7A3E;line-height:1.75">
+            ✅ <b>Code.gs เป็นเวอร์ชันถูกต้องแล้ว (v${backendVer})</b> — ไม่ต้อง deploy ใหม่<br>
+            แถวที่ ❌ มักเกิดจาก <b>หมดเวลารอ</b> เพราะ Apps Script ทำงานทีละคำขอ<br>
+            ${results.some(r=>r.action==='list'&&!r.ok) ? `<b>สินค้า</b> เป็นก้อนใหญ่สุด (271 รายการ) จึงช้าที่สุด — แต่หน้าเว็บโหลดสินค้าได้ปกติอยู่แล้ว (เห็น "สินค้า (271)" บนเมนู)<br>` : ''}
+            👉 กด <b>🔬 ตรวจสอบระบบ</b> ซ้ำอีกครั้ง มักจะผ่านครบ
+          </div>` : `
           <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,0,0,.1);font-size:13px;color:#7a5a00;line-height:1.7">
             <b>วิธีแก้ — Deploy version ใหม่:</b><br>
             1. Google Sheet → <b>Extensions → Apps Script</b><br>
@@ -4155,8 +4267,8 @@
             4. คลิก <b>✏️ ดินสอ</b> → Version → <b>"New version"</b><br>
             5. กด <b>Deploy</b> → รอ 10 วิ<br>
             6. กลับมากด <b>🔬 ตรวจสอบระบบ</b> อีกครั้ง — ต้องขึ้น ✅ ครบ
-          </div>`}
-      </div>`;
+          </div>`)}
+      </div>`);
   }
 
   // =========================
@@ -4350,10 +4462,13 @@
     if (!url) return;
     S.tiktokVideos = S.tiktokVideos || [];
     S.tiktokVideos.unshift({ url, title, thumbnail, views:'', createdAt: new Date().toISOString() });
-    saveState(); savePromosToSheet();
+    saveState();
     document.getElementById('tt-url').value = '';
-    toast("✓ ลงคลิปแล้ว · โผล่หน้าแรกทันที");
     render();
+    savePromosToSheet().then(ok => {
+      if (ok) toast("✓ ลงคลิปแล้ว · บันทึกขึ้น Sheet เรียบร้อย");
+      // ถ้าไม่ ok → savePromosToSheet แจ้ง error เองแล้ว
+    });
   }
 
   // อัพวิดีโอ preview สั้นๆ → เล่นวนอัตโนมัติแบบปิดเสียงบนหน้าแรก (การันตีว่าเล่นได้)
@@ -4390,6 +4505,7 @@
   // SETTINGS admin (PromptPay, Cloudinary, SlipOK, GA, shop info)
   // =========================
   function viewAdminSettings() {
+    liveSheetConfig(); // ให้ช่อง URL/Token แสดงค่าจริงเสมอ (กันแท็บเก่าโชว์ค่าค้าง)
     const inp = (id, label, val, ph, type='text') => `
       <label style="display:block;margin-bottom:12px">
         <span style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">${label}</span>
@@ -4401,7 +4517,7 @@
         <button class="btn btn-outline" onclick="runBackendCheck()">🔬 ตรวจสอบระบบ</button>
         <button class="btn btn-primary" onclick="saveShopSettings()">💾 บันทึก</button>
       `)}
-      <div id="backend-check"></div>
+      <div id="backend-check">${S._diagHtml || ''}</div>
 
       <div class="co-card" style="margin:0 0 16px;border:2px solid var(--brand)">
         <h3 style="margin:0 0 4px">🔗 เชื่อมต่อ Google Sheet</h3>
@@ -4432,7 +4548,7 @@
           <button class="btn btn-outline" onclick="runBackendCheck()">🔬 ตรวจสอบทันที</button>
           <button class="btn btn-outline" onclick="runWriteTest()" style="border-color:var(--brand);color:var(--brand)">✍️ ทดสอบเขียนลง Sheet</button>
         </div>
-        <div id="write-test"></div>
+        <div id="write-test">${S._writeTestHtml || ''}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="co-card" style="margin:0">
@@ -4751,11 +4867,22 @@
     } catch(e){ console.error("[settings pull]", e); }
   }
   async function pushSettingsToSheet() {
-    if (!S.sheetApiUrl) return;
+    if (!S.sheetApiUrl) { toast("⚠️ ยังไม่เชื่อม Sheet — ตั้งค่าเก็บแค่ในเครื่องนี้"); return false; }
     const settings = {};
     SETTING_KEYS.forEach(k => { settings[k] = S[k] || ''; });
-    try { await apiCall("saveSettings", { settings }, true); }
-    catch(e){ console.error("[settings push]", e); }
+    try {
+      const res = await apiCall("saveSettings", { settings }, true);
+      if (res && res.ok) return true;
+      const err = (res && res.error) || 'ไม่ทราบสาเหตุ';
+      toast(String(err).includes('unauthorized')
+        ? "❌ ตั้งค่าไม่ขึ้น Sheet — Secret Token ผิด"
+        : "❌ ตั้งค่าไม่ขึ้น Sheet: " + err);
+      return false;
+    } catch(e){
+      console.error("[settings push]", e);
+      toast("❌ ตั้งค่าไม่ขึ้น Sheet: " + (e.message||e));
+      return false;
+    }
   }
 
   // Promos (banners + tiktok) sync กับ Sheet
@@ -4763,18 +4890,47 @@
     if (!S.sheetApiUrl) return;
     try {
       const res = await apiCall("promos");
-      if (res && res.ok) {
-        S.banners = res.banners || [];
-        S.tiktokVideos = res.tiktoks || [];
-        saveState();
+      if (!(res && res.ok)) return;
+      const remoteTt = res.tiktoks || [];
+      const remoteBn = res.banners || [];
+      const localTt = S.tiktokVideos || [];
+      const localBn = S.banners || [];
+
+      // กันข้อมูลหาย: ถ้า Sheet ว่างแต่ในเครื่องมีของ แปลว่าเคยบันทึกขึ้น Sheet ไม่สำเร็จ
+      // อย่าเขียนทับทิ้ง — ดันของในเครื่องขึ้นไปแทน
+      if (remoteTt.length === 0 && localTt.length > 0) {
+        console.warn("[promos] Sheet ว่างแต่ในเครื่องมี", localTt.length, "คลิป — กำลังกู้ขึ้น Sheet");
+        const ok = await savePromosToSheet();
+        toast(ok ? `↑ กู้คลิป ${localTt.length} อันขึ้น Sheet แล้ว` : "⚠️ คลิปยังไม่ขึ้น Sheet — เช็คการเชื่อมต่อ");
+        return;
       }
+      if (remoteBn.length === 0 && localBn.length > 0) {
+        await savePromosToSheet();
+        return;
+      }
+
+      S.banners = remoteBn;
+      S.tiktokVideos = remoteTt;
+      saveState();
     } catch(e){ console.error("[promos pull]", e); }
   }
+
   async function savePromosToSheet() {
-    if (!S.sheetApiUrl) return;
+    if (!S.sheetApiUrl) { toast("⚠️ ยังไม่เชื่อม Sheet — ข้อมูลเก็บแค่ในเครื่องนี้"); return false; }
     try {
-      await apiCall("savePromos", { banners: S.banners||[], tiktoks: S.tiktokVideos||[] }, true);
-    } catch(e){ console.error("[promos save]", e); }
+      const res = await apiCall("savePromos", { banners: S.banners||[], tiktoks: S.tiktokVideos||[] }, true);
+      if (res && res.ok) return true;
+      const err = (res && res.error) || 'ไม่ทราบสาเหตุ';
+      console.error("[promos save]", res);
+      toast(String(err).includes('unauthorized')
+        ? "❌ บันทึกไม่ขึ้น Sheet — Secret Token ผิด (ไปที่ ตั้งค่า)"
+        : "❌ บันทึกไม่ขึ้น Sheet: " + err);
+      return false;
+    } catch(e){
+      console.error("[promos save]", e);
+      toast("❌ บันทึกไม่ขึ้น Sheet: " + (e.message||e));
+      return false;
+    }
   }
   async function submitReview(pid, po) {
     const rating = Number(prompt("ให้คะแนน 1-5 ดาว:","5")||0);
@@ -5014,9 +5170,17 @@
       <div style="background:#e6f4ff;border:1px solid #91caff;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#003a75">
         💡 ลูกค้าที่สมัครจะ auto ขึ้น tab <b>customers</b> ของ Sheet · ถ้าเห็นน้อยกว่าจริง กด "↑ ส่งขึ้น Sheet" เพื่อ backfill · <b>ไม่เก็บ password</b> ใน Sheet
       </div>
-      ${localOnly.length > 0 ? `<div style="background:#fff3cd;border:1px solid #ffc107;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#7a5a00">
-        ⚠️ มี ${localOnly.length} ลูกค้าใน browser นี้ที่ยังไม่ได้ขึ้น Sheet — กดปุ่ม "↑ ส่งขึ้น Sheet" มุมขวาบน
+      ${localOnly.length > 0 ? `<div style="background:#fff3cd;border:1px solid #ffc107;padding:12px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#7a5a00;line-height:1.7">
+        ⚠️ มี <b>${localOnly.length}</b> ลูกค้าในเครื่องนี้ที่ยังไม่ขึ้น Sheet<br>
+        กด <b>↑ Sync ขึ้น Sheet</b> มุมขวาบนเพื่อส่งขึ้นไป
       </div>` : ''}
+      ${(S.sheetCustomers||[]).length === 0 && (S.registeredUsers||[]).length === 0 ? `
+        <div style="background:#e6f4ff;border:1px solid #91caff;padding:12px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#003a75;line-height:1.75">
+          💡 <b>ลูกค้าสมัครจากเครื่องอื่นแล้วไม่เห็นที่นี่?</b><br>
+          ข้อมูลที่สมัครตอน Sheet ยังต่อไม่ติด จะค้างอยู่ในเครื่องที่สมัคร<br>
+          <b>วิธีกู้:</b> ให้ลูกค้าเปิดเว็บจากเครื่องเดิมแล้ว login — ระบบจะดันข้อมูลขึ้น Sheet ให้เองอัตโนมัติ (v44+)<br>
+          หรือให้สมัครใหม่ก็ได้ ตอนนี้ระบบบันทึกขึ้น Sheet ได้ปกติแล้ว
+        </div>` : ''}
       <div style="margin-bottom:12px">
         <input type="text" id="cust-search" placeholder="🔍 ค้นชื่อ / เบอร์ / อีเมล / บริษัท / Tax ID"
           value="${q.replace(/"/g,'&quot;')}"
