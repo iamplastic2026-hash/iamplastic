@@ -1,5 +1,5 @@
 <title>THE FOOD BOX ASIA — บรรจุภัณฑ์อาหารครบวงจร</title>
-<link rel="icon" href="./logo.jpg" type="image/jpeg">
+<link rel="icon" href="/logo.jpg" type="image/jpeg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
@@ -954,7 +954,9 @@
 <header class="header">
   <div class="header-inner">
     <a class="logo" onclick="go('/')" style="align-items:center">
-      <img src="./logo.jpg" alt="THE FOOD BOX ASIA" style="width:52px;height:52px;border-radius:10px;object-fit:cover;box-shadow:0 2px 6px rgba(0,0,0,.15)">
+      <img src="/logo.jpg" alt="THE FOOD BOX ASIA" style="width:52px;height:52px;border-radius:10px;object-fit:cover;box-shadow:0 2px 6px rgba(0,0,0,.15);background:#0F0F0F"
+        onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
+      <span class="logo-fallback" style="display:none;width:52px;height:52px;border-radius:10px;background:#0F0F0F;color:#fff;place-items:center;font-family:'Space Grotesk',sans-serif;font-weight:900;font-size:11px;text-align:center;line-height:1">FOOD<br>BOX</span>
       <span>
         <b style="font-weight:900;letter-spacing:.5px">THE FOOD BOX</b> <span style="background:var(--brand);color:#fff;padding:1px 8px;border-radius:4px;font-size:12px;font-weight:800;letter-spacing:1px">ASIA</span>
         <small>บรรจุภัณฑ์อาหาร · 271 SKU</small>
@@ -3070,9 +3072,10 @@
     const staleness = Date.now() - (S.sheetLastSync || 0);
     if (staleness < 5 * 60 * 1000 && S.sheetProducts) return;
     await pullProductsFromSheet();
-    // Load coupons + reviews in background (silent)
+    // Load coupons + reviews + promos in background (silent)
     pullCouponsFromSheet().catch(()=>{});
     pullReviewsFromSheet().catch(()=>{});
+    pullPromosFromSheet().then(()=>render()).catch(()=>{});
     render();
   }
 
@@ -3373,9 +3376,11 @@
       ${adminPageHeader('โปรโมชั่น + คลิป TikTok', '📢', `
         <button class="btn btn-primary" onclick="addBanner()">➕ Banner</button>
         <button class="btn btn-primary" onclick="addTiktokVideo()" style="background:#000">➕ TikTok</button>
+        <button class="btn btn-outline" onclick="pullPromosFromSheet().then(()=>render())">🔄 Refresh</button>
+        <button class="btn btn-outline" onclick="savePromosToSheet().then(()=>toast('↑ sync สำเร็จ'))">↑ Push</button>
       `)}
       <div style="background:#e6f4ff;border:1px solid #91caff;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px">
-        💡 Banner + คลิปเก็บใน browser + Sheet · โผล่บนหน้าแรก · คลิปดึงจาก TikTok ผ่าน URL
+        💡 Banner + คลิป auto sync กับ Google Sheet (tab <b>promos</b>) · ทุก browser เห็นเหมือนกัน · ลูกค้าที่หน้าแรกก็เห็น
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -3422,8 +3427,8 @@
     const image = prompt("URL รูป (ปล่อยว่าง = ใช้ gradient):","")||'';
     const emoji = image?'':prompt("Emoji ใหญ่ (ถ้าไม่มีรูป):","📦")||'📦';
     S.banners = S.banners || [];
-    S.banners.push({ title, subtitle, cta, link, image, emoji, color1:'#EE4D2D', color2:'#ff6b3d' });
-    saveState(); toast("✓ เพิ่ม banner"); render();
+    S.banners.push({ title, subtitle, cta, link, image, emoji, color1:'#AB2739', color2:'#7A1929' });
+    saveState(); savePromosToSheet(); toast("✓ เพิ่ม banner (sync ขึ้น Sheet)"); render();
   }
   function editBanner(i) {
     const b = S.banners[i]; if (!b) return;
@@ -3432,11 +3437,11 @@
     b.cta = prompt("ปุ่ม CTA:", b.cta)||'';
     b.link = prompt("URL:", b.link)||'';
     b.image = prompt("URL รูป:", b.image)||'';
-    saveState(); toast("✓ อัพเดต"); render();
+    saveState(); savePromosToSheet(); toast("✓ อัพเดต"); render();
   }
   function deleteBanner(i) {
     if (!confirm("ลบ banner นี้?")) return;
-    S.banners.splice(i,1); saveState(); render();
+    S.banners.splice(i,1); saveState(); savePromosToSheet(); render();
   }
 
   async function fetchTiktokMeta(url) {
@@ -3461,7 +3466,8 @@
     S.tiktokVideos = S.tiktokVideos || [];
     S.tiktokVideos.unshift({ url, title, thumbnail, author, views, createdAt: new Date().toISOString() });
     saveState();
-    toast(meta ? `✓ เพิ่มคลิป: ${title.slice(0,40)}` : "✓ เพิ่มคลิป (กรอกเอง)");
+    savePromosToSheet();
+    toast(meta ? `✓ เพิ่มคลิป: ${title.slice(0,40)} · sync แล้ว` : "✓ เพิ่มคลิป · sync แล้ว");
     render();
   }
 
@@ -3473,7 +3479,7 @@
       v.title = meta.title || v.title;
       v.thumbnail = meta.thumbnail || v.thumbnail;
       v.author = meta.author || v.author;
-      saveState(); toast("✓ อัพเดตแล้ว"); render();
+      saveState(); savePromosToSheet(); toast("✓ อัพเดตแล้ว"); render();
     } else { toast("❌ ดึงไม่ได้"); }
   }
 
@@ -3489,11 +3495,11 @@
     v.title = prompt("Caption:", v.title||'') || v.title || '';
     v.thumbnail = prompt("Thumbnail URL:", v.thumbnail||'') || v.thumbnail || '';
     v.views = prompt("ยอด view:", v.views||'') || v.views || '';
-    saveState(); toast("✓ อัพเดต"); render();
+    saveState(); savePromosToSheet(); toast("✓ อัพเดต"); render();
   }
   function deleteTiktok(i) {
     if (!confirm("ลบคลิปนี้?")) return;
-    S.tiktokVideos.splice(i,1); saveState(); render();
+    S.tiktokVideos.splice(i,1); saveState(); savePromosToSheet(); render();
   }
 
   // =========================
@@ -3678,6 +3684,25 @@
   async function pullReviewsFromSheet() {
     if (!S.sheetApiUrl) return;
     try { const res = await apiCall("listReviews"); if (res.ok) { S.sheetReviews = res.reviews||[]; saveState(); } } catch(e){}
+  }
+
+  // Promos (banners + tiktok) sync กับ Sheet
+  async function pullPromosFromSheet() {
+    if (!S.sheetApiUrl) return;
+    try {
+      const res = await apiCall("promos");
+      if (res && res.ok) {
+        S.banners = res.banners || [];
+        S.tiktokVideos = res.tiktoks || [];
+        saveState();
+      }
+    } catch(e){ console.error("[promos pull]", e); }
+  }
+  async function savePromosToSheet() {
+    if (!S.sheetApiUrl) return;
+    try {
+      await apiCall("savePromos", { banners: S.banners||[], tiktoks: S.tiktokVideos||[] }, true);
+    } catch(e){ console.error("[promos save]", e); }
   }
   async function submitReview(pid, po) {
     const rating = Number(prompt("ให้คะแนน 1-5 ดาว:","5")||0);
