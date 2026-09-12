@@ -1024,6 +1024,8 @@
     orders: safeGet("iamplastic.orders", []),
     coupon: safeGet("iamplastic.coupon", ""),
     adminAuth: safeGet("iamplastic.adminAuth", false),
+    adminUser: safeGet("iamplastic.adminUser", ""),
+    adminPassHash: safeGet("iamplastic.adminPassHash", ""),
     productOverrides: safeGet("iamplastic.productOverrides", {}),
     deletedProducts: safeGet("iamplastic.deletedProducts", []),
     newProducts: safeGet("iamplastic.newProducts", []),
@@ -1142,6 +1144,8 @@
     safeSet("iamplastic.coupon", S.coupon);
     safeSet("iamplastic.orders", S.orders);
     safeSet("iamplastic.adminAuth", S.adminAuth);
+    safeSet("iamplastic.adminUser", S.adminUser);
+    safeSet("iamplastic.adminPassHash", S.adminPassHash);
     safeSet("iamplastic.productOverrides", S.productOverrides);
     safeSet("iamplastic.deletedProducts", S.deletedProducts);
     safeSet("iamplastic.newProducts", S.newProducts);
@@ -1716,12 +1720,7 @@
     // Auto-load latest data from Sheet in background (if configured)
     autoLoadFromSheet();
     // LIFF init (ถ้าตั้งค่า)
-    if (S.liffId) {
-      const liffScript = document.createElement('script');
-      liffScript.src = 'https://static.line-scdn.net/liff/edge/2/sdk.js';
-      liffScript.onload = () => initLIFF();
-      document.head.appendChild(liffScript);
-    }
+    if (S.liffId) initLIFF();
     // GA4 inject (ถ้าตั้งค่า)
     if (S.gaTagId && S.gaTagId.startsWith('G-')) {
       const s = document.createElement('script');
@@ -1769,6 +1768,8 @@
     else if (r === "/admin/settings") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminSettings(); }
     else if (r === "/admin/promos") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminPromos(); }
     else if (r === "/admin/tiktok") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminTiktok(); }
+    else if (r === "/admin/manage") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminManage(); }
+    else if (r === "/admin/account") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminAccount(); }
     else if (r.startsWith("/admin/label/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminLabel(r.split("/")[3]); }
     else if (r === "/account/profile") content = viewAccountProfile();
     else if (r === "/account/wishlist") content = viewWishlist();
@@ -1827,6 +1828,7 @@
               <a class="ud-item" onclick="hideDropdown();go('/admin/tiktok')">🎬 ลงคลิป TikTok</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/coupons')">🎁 คูปอง</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/settings')">⚙️ ตั้งค่าร้าน</a>
+              <a class="ud-item" onclick="hideDropdown();go('/admin/manage')">🔐 จัดการแอดมิน</a>
               <div class="ud-divider"></div>
             ` : ''}
             <a class="ud-item" onclick="hideDropdown();go('/orders')">📋 คำสั่งซื้อของฉัน</a>
@@ -1876,6 +1878,7 @@
         <a onclick="go('/admin/tiktok')">🎬 ลงคลิป TikTok (${(S.tiktokVideos||[]).length})</a>
         <a onclick="go('/admin/promos')">📢 โปรโมชั่น</a>
         <a onclick="go('/admin/settings')">⚙️ ตั้งค่า</a>
+        <a onclick="go('/admin/manage')">🔐 จัดการแอดมิน</a>
         <a onclick="go('/admin/create-bill')" style="background:rgba(0,0,0,.12);padding:3px 8px;border-radius:4px">➕ เปิดบิลใหม่</a>
         <a onclick="go('/admin/new')">➕ เพิ่มสินค้า</a>
         <span style="margin-left:auto;opacity:.75;font-size:11px">${S.user.name || 'Admin'}</span>
@@ -2591,8 +2594,15 @@
   // =======================================================
   // AUTH — Login (Admin + Customer)
   // =======================================================
+  // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
-  const ADMIN_PASSWORD = "admin2026"; // เปลี่ยนตามต้องการ
+  const ADMIN_PASSWORD = "admin2026";
+
+  // SHA-256 → hex (ใช้เก็บรหัสแทน plain text)
+  async function sha256(str) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+  }
 
   let loginTab = "customer"; // ตัวจำ tab ที่เลือก
   function viewLogin() {
@@ -2625,7 +2635,12 @@
               <button class="btn btn-block btn-big" onclick="loginWithLINE()" style="background:#06C755;color:#fff;border:none">
                 <span style="font-size:18px">💚</span> เข้าสู่ระบบด้วย LINE
               </button>
-            ` : ''}
+            ` : (isAdmin() ? `
+              <div style="margin-top:14px;padding:10px 12px;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;font-size:12px;color:#7a5a00">
+                💚 ปุ่ม LINE Login ยังไม่โผล่เพราะยังไม่ได้ตั้ง <b>LIFF ID</b><br>
+                <a onclick="go('/admin/settings')" style="color:var(--brand);cursor:pointer;font-weight:700">→ ไปตั้งค่า</a>
+                <span style="opacity:.6">(ข้อความนี้เห็นเฉพาะ admin)</span>
+              </div>` : '')}
             <div style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:14px">
               ยังไม่มีบัญชี? <a onclick="go('/register')" style="color:var(--brand);cursor:pointer;font-weight:700">สมัครสมาชิก →</a>
             </div>
@@ -3027,15 +3042,43 @@
   function loginAsAdmin() {
     const u = document.getElementById("login-user").value.trim();
     const p = document.getElementById("login-pw").value;
-    if (u === ADMIN_USERNAME && p === ADMIN_PASSWORD) {
+    loginAsAdminAsync(u, p);
+  }
+
+  async function loginAsAdminAsync(u, p) {
+    // ลำดับตรวจ: Sheet (ถ้าเชื่อมได้) → localStorage → ค่าเริ่มต้น
+    let creds = null;
+    if (S.sheetApiUrl) {
+      try {
+        const res = await apiCall("getAdmin", {}, true);
+        if (res && res.ok && res.admin && res.admin.passHash) {
+          creds = res.admin;
+          // cache ไว้ใช้ตอน offline
+          S.adminUser = creds.user; S.adminPassHash = creds.passHash; saveState();
+        }
+      } catch (e) { console.warn("[admin] อ่านจาก Sheet ไม่ได้ ใช้ค่าในเครื่องแทน"); }
+    }
+    if (!creds && S.adminPassHash) creds = { user: S.adminUser, passHash: S.adminPassHash };
+
+    let pass = false;
+    if (creds) {
+      pass = (u === creds.user) && ((await sha256(p)) === creds.passHash);
+    } else {
+      // ยังไม่เคยตั้งรหัสเอง → ใช้ค่าเริ่มต้น
+      pass = (u === ADMIN_USERNAME && p === ADMIN_PASSWORD);
+    }
+
+    if (pass) {
       S.user = { role: 'admin', name: 'Admin', email: 'iamplastic2026@gmail.com' };
       saveState();
       toast("เข้าสู่ระบบ Admin สำเร็จ ✓");
+      if (!creds) setTimeout(() => toast("⚠️ ยังใช้รหัสเริ่มต้น — ควรเปลี่ยนที่ ตั้งค่าแอดมิน"), 1800);
       go('/admin');
     } else {
       toast("username หรือ password ไม่ถูกต้อง");
     }
   }
+
   function doLogout() {
     hideDropdown();
     S.user = null;
@@ -3536,8 +3579,253 @@
   }
 
   // =========================
+  // ADMIN MANAGE — ศูนย์รวมสิทธิ์ + ทางลัดทุกหน้า
+  // =========================
+  const ADMIN_AREAS = [
+    { icon:'📊', title:'Dashboard', route:'/admin',
+      can:['ดูยอดขายวันนี้ / เดือนนี้','ดู Top 10 สินค้าขายดี','ดูสินค้าใกล้หมด / หมดสต็อก','ดูคำสั่งซื้อล่าสุด 5 รายการ'] },
+    { icon:'📦', title:'สินค้า', route:'/admin/products',
+      can:['เพิ่ม / แก้ไข / ลบสินค้า','แก้ราคาปลีก-ส่ง · MOQ · ส่วนลด','แก้สต็อก (ตัดอัตโนมัติเมื่อมีออเดอร์)','อัพรูปสินค้าผ่าน Cloudinary','ส่งสินค้าทั้งหมดขึ้น Sheet'] },
+    { icon:'📋', title:'คำสั่งซื้อ (PO)', route:'/admin/orders',
+      can:['ดูรายละเอียดออเดอร์ลูกค้า','เลื่อนสถานะ (รอชำระ → จัดส่ง → รับแล้ว)','ใส่เลขพัสดุ / ยกเลิกออเดอร์','ตรวจ + ยืนยันสลิปโอนเงิน','ออกบิลเงินสด / ใบกำกับภาษีจาก PO','พิมพ์ Label ติดกล่อง','Export CSV'] },
+    { icon:'🧾', title:'บิลขาย', route:'/admin/bills',
+      can:['เปิดบิลหน้าร้าน / โทรสั่ง (walk-in)','ดูบิลเงินสด (RC) แยกจากใบกำกับภาษี (TX)','ยืนยันชำระบิลเครดิต','คัดลอกลิงก์บิลส่งลูกค้า','Export CSV ให้บัญชี'] },
+    { icon:'👥', title:'ลูกค้า', route:'/admin/customers',
+      can:['ดูรายชื่อลูกค้าทั้งหมด','ดูประวัติสั่งซื้อ + ยอดสะสมรายคน','รีเซ็ตรหัสผ่านให้ลูกค้า','ค้นหาด้วยชื่อ / เบอร์ / Tax ID','Export CSV'] },
+    { icon:'🎁', title:'คูปอง', route:'/admin/coupons',
+      can:['สร้างโค้ดส่วนลด (% หรือ ฿)','ตั้งยอดขั้นต่ำ / วันหมดอายุ','จำกัดจำนวนครั้งที่ใช้','เปิด-ปิด / ลบคูปอง'] },
+    { icon:'🎬', title:'คลิป TikTok', route:'/admin/tiktok',
+      can:['ลงคลิปด้วย URL (ดึงรูป+caption อัตโนมัติ)','จัดลำดับคลิปที่โชว์หน้าแรก','ลบคลิป'] },
+    { icon:'📢', title:'โปรโมชั่น', route:'/admin/promos',
+      can:['สร้าง Banner โฆษณาหน้าแรก','ใส่รูป / ข้อความ / ปุ่ม CTA','จัดการคลิป TikTok'] },
+    { icon:'⚙️', title:'ตั้งค่าร้าน', route:'/admin/settings',
+      can:['เชื่อมต่อ Google Sheet + ตรวจสอบระบบ','ข้อมูลร้าน · เบอร์ · ที่อยู่','PromptPay + อัพ QR เอง','เลขบัญชีธนาคาร (2 บัญชี)','ช่องทางติดต่อ (LINE / Messenger / TikTok)','SlipOK · Cloudinary · GA4 · LINE Login'] },
+  ];
+
+  function viewAdminManage() {
+    const usingDefault = !S.adminPassHash;
+    return `
+      ${adminPageHeader('จัดการแอดมิน','🔐',`
+        <button class="btn btn-primary" onclick="go('/admin/account')">🔑 ตั้งรหัสแอดมิน</button>
+      `)}
+
+      ${usingDefault ? `
+        <div style="background:#fde8e8;border:1px solid #f5a3a3;padding:14px 16px;border-radius:10px;margin-bottom:16px">
+          <div style="font-weight:800;color:#b02a2a;margin-bottom:4px">⚠️ ยังใช้รหัสผ่านเริ่มต้น</div>
+          <div style="font-size:13px;color:#8a2020;line-height:1.6">
+            ตอนนี้ยังเข้าได้ด้วย <code style="background:#fff;padding:1px 6px;border-radius:3px">admin / admin2026</code> ซึ่งเขียนอยู่ในโค้ดที่ใครก็เปิดดูได้<br>
+            <b>ควรตั้งรหัสใหม่ทันที</b> — กดปุ่ม "🔑 ตั้งรหัสแอดมิน" มุมขวาบน
+          </div>
+        </div>` : `
+        <div style="background:#e6f7ed;border:1px solid #8ed9ae;padding:12px 16px;border-radius:10px;margin-bottom:16px;font-size:13px;color:#0B7A3E">
+          ✅ ตั้งรหัสผ่านเองแล้ว · ผู้ใช้: <b>${esc(S.adminUser||'-')}</b>
+        </div>`}
+
+      <div style="background:var(--surface-warm);border:1px solid var(--border);padding:14px 16px;border-radius:10px;margin-bottom:18px;font-size:13px;line-height:1.7">
+        <b>สิทธิ์ในระบบมี 3 ระดับ</b><br>
+        🔐 <b>แอดมิน</b> — เข้าได้ทุกหน้าด้านล่าง · แก้ไขได้ทุกอย่าง · มีคนเดียว<br>
+        👤 <b>ลูกค้า</b> — สั่งซื้อ · ดูออเดอร์ตัวเอง · แก้โปรไฟล์ + ที่อยู่ตัวเอง · รีวิวสินค้า<br>
+        👁️ <b>ผู้เยี่ยมชม</b> — ดูสินค้า · ใส่ตะกร้า · สั่งซื้อแบบไม่สมัครสมาชิก
+      </div>
+
+      <div class="section-head" style="margin:0 0 12px"><h2 style="font-size:16px">แอดมินทำอะไรได้บ้าง (${ADMIN_AREAS.length} หมวด)</h2></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">
+        ${ADMIN_AREAS.map(a => `
+          <div class="co-card" style="margin:0;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+              <div style="font-size:26px">${a.icon}</div>
+              <h3 style="margin:0;font-size:16px;flex:1">${a.title}</h3>
+            </div>
+            <ul style="margin:0 0 14px;padding-left:18px;font-size:13px;color:var(--text-muted);line-height:1.9;flex:1">
+              ${a.can.map(c => `<li>${c}</li>`).join('')}
+            </ul>
+            <button class="btn btn-outline btn-block" onclick="go('${a.route}')">เปิดหน้านี้ →</button>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  // =========================
+  // ADMIN ACCOUNT — ตั้ง username / password
+  // =========================
+  function viewAdminAccount() {
+    const usingDefault = !S.adminPassHash;
+    const field = (id, label, type, ph) => `
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">${label}</span>
+        <input id="${id}" type="${type}" placeholder="${ph||''}" autocomplete="off"
+          style="width:100%;padding:11px 13px;border:1px solid var(--border);border-radius:6px;font-size:14px">
+      </label>`;
+    return `
+      ${adminPageHeader('ตั้งรหัสแอดมิน','🔑',`<button class="btn btn-outline" onclick="go('/admin/manage')">← กลับ</button>`)}
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="co-card" style="margin:0">
+          <h3 style="margin:0 0 4px">เปลี่ยน username / รหัสผ่าน</h3>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">
+            ${usingDefault
+              ? 'ตอนนี้ใช้ค่าเริ่มต้น <b>admin / admin2026</b> — ใส่รหัสเดิมนี้ในช่อง "รหัสผ่านเดิม"'
+              : 'ต้องใส่รหัสผ่านเดิมเพื่อยืนยันตัวตน'}
+          </div>
+
+          ${field('adm-old','รหัสผ่านเดิม','password','รหัสที่ใช้อยู่ตอนนี้')}
+          <div style="height:1px;background:var(--border);margin:16px 0"></div>
+          ${field('adm-user','Username ใหม่','text', S.adminUser || ADMIN_USERNAME)}
+          ${field('adm-new','รหัสผ่านใหม่','password','อย่างน้อย 8 ตัวอักษร')}
+          ${field('adm-new2','ยืนยันรหัสผ่านใหม่','password','พิมพ์ซ้ำอีกครั้ง')}
+
+          <button class="btn btn-primary btn-block btn-big" onclick="saveAdminCreds()">🔐 บันทึกรหัสใหม่</button>
+          <div id="adm-result" style="margin-top:12px"></div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="co-card" style="margin:0">
+            <h3 style="margin:0 0 12px">📍 รหัสเก็บที่ไหน</h3>
+            <table class="pd-specs" style="font-size:13px">
+              <tr><td>รูปแบบ</td><td>SHA-256 hash (ไม่เก็บรหัสจริง)</td></tr>
+              <tr><td>เก็บที่</td><td>Google Sheet tab <b>admin</b></td></tr>
+              <tr><td>สำรอง</td><td>localStorage ของ browser</td></tr>
+              <tr><td>อ่านผ่าน</td><td>POST + token เท่านั้น</td></tr>
+              <tr><td>สถานะ</td><td>${usingDefault?'<span style="color:#DC2626">⚠️ ยังเป็นค่าเริ่มต้น</span>':'<span style="color:var(--success)">✅ ตั้งเองแล้ว</span>'}</td></tr>
+            </table>
+          </div>
+
+          <div class="co-card" style="margin:0;background:#fff8e6;border-color:#e8d89b">
+            <h3 style="margin:0 0 10px;color:#8B6914">⚠️ ข้อจำกัดที่ควรรู้</h3>
+            <div style="font-size:13px;color:#7a5a00;line-height:1.75">
+              เว็บนี้เป็น static site — การตรวจรหัสเกิดขึ้นใน browser ทั้งหมด<br><br>
+              <b>แปลว่า:</b> คนที่รู้วิธีเปิด DevTools สามารถข้ามหน้า login ได้<br>
+              <b>ป้องกันได้จริงคือ:</b> ข้อมูลใน Sheet — การเขียนทุกครั้งต้องมี token<br><br>
+              เหมาะกับร้านเล็กที่แอดมินมีคนเดียว · ถ้าต้องการความปลอดภัยระดับธุรกิจจริง ต้องมี backend server แยก
+            </div>
+          </div>
+
+          <div class="co-card" style="margin:0">
+            <h3 style="margin:0 0 10px">🆘 ลืมรหัสผ่าน</h3>
+            <div style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:12px">
+              เปิด Google Sheet → tab <b>admin</b> → ลบแถว <code>passHash</code> ทิ้ง<br>
+              ระบบจะกลับไปใช้ <code>admin / admin2026</code> แล้วตั้งใหม่ได้
+            </div>
+            <button class="btn btn-ghost btn-block" onclick="resetAdminToDefault()" style="color:#DC2626">🔄 รีเซ็ตกลับค่าเริ่มต้น (ในเครื่องนี้)</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async function saveAdminCreds() {
+    const g = id => (document.getElementById(id)||{}).value || '';
+    const box = document.getElementById('adm-result');
+    const show = (bg, border, color, html) =>
+      box.innerHTML = `<div style="background:${bg};border:1px solid ${border};color:${color};padding:12px 14px;border-radius:8px;font-size:13px;line-height:1.6">${html}</div>`;
+
+    const oldPw = g('adm-old'), user = g('adm-user').trim(), np = g('adm-new'), np2 = g('adm-new2');
+
+    // ยืนยันรหัสเดิม
+    let oldOk;
+    if (S.adminPassHash) oldOk = (await sha256(oldPw)) === S.adminPassHash;
+    else oldOk = (oldPw === ADMIN_PASSWORD);
+    if (!oldOk) { show('#fde8e8','#f5a3a3','#b02a2a','❌ รหัสผ่านเดิมไม่ถูกต้อง'); return; }
+
+    if (!user) { show('#fde8e8','#f5a3a3','#b02a2a','❌ ต้องใส่ username'); return; }
+    if (np.length < 8) { show('#fde8e8','#f5a3a3','#b02a2a','❌ รหัสใหม่ต้องยาวอย่างน้อย 8 ตัวอักษร'); return; }
+    if (np !== np2) { show('#fde8e8','#f5a3a3','#b02a2a','❌ รหัสใหม่ทั้งสองช่องไม่ตรงกัน'); return; }
+    if (np === ADMIN_PASSWORD) { show('#fff3cd','#ffc107','#7a5a00','⚠️ ห้ามใช้รหัสเริ่มต้น — ตั้งรหัสอื่น'); return; }
+
+    const hash = await sha256(np);
+    S.adminUser = user; S.adminPassHash = hash; saveState();
+
+    let sheetMsg = '';
+    if (S.sheetApiUrl) {
+      try {
+        const res = await apiCall("setAdmin", { user, passHash: hash }, true);
+        sheetMsg = (res && res.ok)
+          ? '<br>✅ บันทึกขึ้น Sheet tab <b>admin</b> แล้ว — ใช้ได้ทุก browser'
+          : '<br>⚠️ บันทึกในเครื่องแล้ว แต่ขึ้น Sheet ไม่สำเร็จ: ' + esc((res && res.error) || 'unknown') + '<br>(Apps Script อาจยังไม่ redeploy)';
+      } catch (e) {
+        sheetMsg = '<br>⚠️ บันทึกในเครื่องแล้ว แต่ต่อ Sheet ไม่ได้';
+      }
+    } else {
+      sheetMsg = '<br>⚠️ ยังไม่เชื่อม Sheet — รหัสเก็บเฉพาะ browser นี้';
+    }
+
+    show('#e6f7ed','#8ed9ae','#0B7A3E', `✅ <b>เปลี่ยนรหัสสำเร็จ</b><br>Username: <b>${esc(user)}</b>${sheetMsg}`);
+    ['adm-old','adm-new','adm-new2'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    toast("🔐 เปลี่ยนรหัสแอดมินแล้ว");
+  }
+
+  function resetAdminToDefault() {
+    if (!confirm("รีเซ็ตรหัสแอดมินในเครื่องนี้กลับเป็น admin / admin2026?\n\n(ถ้าเชื่อม Sheet อยู่ ระบบจะดึงรหัสจาก Sheet มาใช้แทนตอน login ครั้งถัดไป)")) return;
+    S.adminUser = ''; S.adminPassHash = ''; saveState();
+    toast("รีเซ็ตแล้ว · ใช้ admin / admin2026");
+    render();
+  }
+
+  // =========================
   // BACKEND CHECK — บอกว่า Apps Script deploy version ใหม่หรือยัง
   // =========================
+  async function testLiff() {
+    const box = document.getElementById('liff-test');
+    if (!box) return;
+    const row = (ok, txt) => `<div style="display:flex;gap:8px;padding:4px 0;font-size:13px"><span>${ok?'✅':'❌'}</span><span>${txt}</span></div>`;
+    const wrap = (bg, bd, html) => box.innerHTML = `<div style="background:${bg};border:1px solid ${bd};padding:12px 14px;border-radius:8px;margin-top:4px">${html}</div>`;
+
+    const liffId = (document.getElementById('set-liffId')||{}).value.trim() || S.liffId;
+    if (!liffId) {
+      wrap('#fff3cd','#ffc107', row(false,'ยังไม่ได้ใส่ LIFF ID') +
+        `<div style="font-size:12px;color:#7a5a00;margin-top:8px;line-height:1.7">
+          สร้างที่ <a href="https://developers.line.biz/console" target="_blank" style="color:var(--brand)">developers.line.biz/console</a><br>
+          → LINE Login channel → เมนู <b>LIFF</b> → <b>Add</b><br>
+          → Size: <b>Full</b> · Endpoint URL: <code>${location.origin}</code><br>
+          → Scope: ติ๊ก <b>profile</b> + <b>openid</b> · เปิด <b>OpenID Connect</b><br>
+          → copy <b>LIFF ID</b> มาใส่ช่องด้านบน แล้วกด 💾 บันทึก
+        </div>`);
+      return;
+    }
+
+    box.innerHTML = `<div style="padding:12px;color:var(--text-muted);font-size:13px">⏳ กำลังทดสอบ...</div>`;
+    let html = row(true, `มี LIFF ID: <code>${esc(liffId)}</code>`);
+
+    const loaded = await loadLiffSdk();
+    html += row(loaded, loaded ? 'โหลด LIFF SDK สำเร็จ' : 'โหลด LIFF SDK ไม่ได้ (เช็คอินเทอร์เน็ต / adblock)');
+    if (!loaded) { wrap('#fde8e8','#f5a3a3', html); return; }
+
+    try {
+      if (!_liffInited) { await liff.init({ liffId }); _liffInited = true; }
+      html += row(true, 'liff.init() ผ่าน — LIFF ID + Endpoint URL ถูกต้อง');
+    } catch (e) {
+      html += row(false, `liff.init() ไม่ผ่าน: ${esc(e.message||String(e))}`);
+      wrap('#fde8e8','#f5a3a3', html + `
+        <div style="font-size:12px;color:#8a2020;margin-top:10px;line-height:1.7">
+          <b>สาเหตุที่พบบ่อย:</b><br>
+          • LIFF ID พิมพ์ผิด / ไม่มีอยู่จริง<br>
+          • Endpoint URL ใน LINE Console ไม่ตรงกับ <code>${location.origin}</code><br>
+          • LIFF app ถูกลบไปแล้ว
+        </div>`);
+      return;
+    }
+
+    const inClient = liff.isInClient();
+    html += row(true, inClient ? 'เปิดอยู่ในแอป LINE' : 'เปิดใน browser ทั่วไป (ใช้ได้ปกติ)');
+
+    const loggedIn = liff.isLoggedIn();
+    html += row(loggedIn, loggedIn ? 'login LINE อยู่แล้ว' : 'ยังไม่ได้ login — กดปุ่มเขียวที่หน้า /login ได้เลย');
+
+    if (loggedIn) {
+      try {
+        const p = await liff.getProfile();
+        html += row(true, `ดึงโปรไฟล์ได้: <b>${esc(p.displayName)}</b>`);
+      } catch (e) {
+        html += row(false, 'ดึงโปรไฟล์ไม่ได้ — scope อาจไม่มี profile');
+      }
+    }
+
+    const allOk = loaded && _liffInited;
+    wrap(allOk?'#e6f7ed':'#fff3cd', allOk?'#8ed9ae':'#ffc107', html +
+      (allOk ? `<div style="font-size:12px;color:#0B7A3E;margin-top:8px">✅ พร้อมใช้ — ปุ่ม "เข้าสู่ระบบด้วย LINE" จะโผล่ที่หน้า /login</div>` : ''));
+  }
+
   function saveSheetUrlMain() {
     const url = (document.getElementById('sheet-url-main')||{}).value.trim();
     const token = (document.getElementById('sheet-token-main')||{}).value.trim();
@@ -3580,6 +3868,13 @@
       } catch (e) {
         results.push({ ...c, ok: false, err: String(e.message||e) });
       }
+    }
+    // getAdmin เป็น POST (ต้องมี token) — เช็คแยก
+    try {
+      const res = await apiCall('getAdmin', {}, true);
+      results.push({ action:'getadmin', label:'รหัสแอดมิน (admin)', need:'v33', ok: !!(res && res.ok) });
+    } catch (e) {
+      results.push({ action:'getadmin', label:'รหัสแอดมิน (admin)', need:'v33', ok:false });
     }
 
     const failed = results.filter(r => !r.ok);
@@ -3849,6 +4144,15 @@
             ปล่อยว่าง = ปิด LINE Login (ยังใช้ email/password ได้ปกติ)
           </div>
           ${inp('liffId','LIFF ID',S.liffId,'2000000000-abcdefgh')}
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+            <button class="btn btn-outline" onclick="testLiff()">🔬 ทดสอบ LINE Login</button>
+            ${S.lineProfile?`<button class="btn btn-ghost" onclick="logoutLINE()" style="color:#DC2626">ออกจาก LINE</button>`:''}
+          </div>
+          <div id="liff-test"></div>
+          <div style="font-size:11px;color:var(--text-muted);line-height:1.7;margin-top:8px">
+            <b>Endpoint URL ใน LIFF ต้องตรงกับ:</b> <code style="background:var(--surface-warm);padding:1px 5px;border-radius:3px">${location.origin}</code><br>
+            ถ้าใส่เป็น URL preview ของ Vercel จะ login ไม่ได้
+          </div>
         </div>
       </div>
     `;
@@ -4066,6 +4370,8 @@
           if (res.settings[k] !== undefined && res.settings[k] !== '') S[k] = res.settings[k];
         });
         saveState();
+        // liffId เพิ่งมาจาก Sheet → เริ่ม LIFF ตอนนี้ (ตอน page load ยังไม่มีค่า)
+        if (S.liffId && !window.liff) initLIFF();
       }
     } catch(e){ console.error("[settings pull]", e); }
   }
@@ -4109,10 +4415,29 @@
   // =========================
   // LINE Login (LIFF)
   // =========================
+  // โหลด LIFF SDK แบบ on-demand (แก้ปัญหา: เดิมโหลดตอน page load เท่านั้น
+  // ถ้า liffId ยังว่างตอนนั้น SDK จะไม่ถูกโหลดเลย แม้ตั้งค่าทีหลัง)
+  let _liffSdkPromise = null;
+  function loadLiffSdk() {
+    if (window.liff) return Promise.resolve(true);
+    if (_liffSdkPromise) return _liffSdkPromise;
+    _liffSdkPromise = new Promise(resolve => {
+      const s = document.createElement('script');
+      s.src = 'https://static.line-scdn.net/liff/edge/2/sdk.js';
+      s.onload = () => resolve(true);
+      s.onerror = () => { _liffSdkPromise = null; resolve(false); };
+      document.head.appendChild(s);
+    });
+    return _liffSdkPromise;
+  }
+
+  let _liffInited = false;
   async function initLIFF() {
-    if (!window.liff || !S.liffId) return;
+    if (!S.liffId) return;
+    const loaded = await loadLiffSdk();
+    if (!loaded || !window.liff) return;
     try {
-      await liff.init({ liffId: S.liffId });
+      if (!_liffInited) { await liff.init({ liffId: S.liffId }); _liffInited = true; }
       if (liff.isLoggedIn()) {
         const profile = await liff.getProfile();
         S.lineProfile = {
@@ -4132,7 +4457,17 @@
   }
 
   async function loginWithLINE() {
-    if (!window.liff) { toast("LIFF ยังไม่โหลด — refresh หน้า"); return; }
+    if (!S.liffId) { toast("ยังไม่ได้ตั้ง LIFF ID — ไปที่ ตั้งค่าร้าน"); return; }
+    toast("⏳ กำลังเชื่อมต่อ LINE...");
+    const loaded = await loadLiffSdk();
+    if (!loaded || !window.liff) { toast("❌ โหลด LIFF SDK ไม่ได้ — เช็คอินเทอร์เน็ต"); return; }
+    try {
+      if (!_liffInited) { await liff.init({ liffId: S.liffId }); _liffInited = true; }
+    } catch (e) {
+      toast("❌ LIFF ID ผิด หรือ Endpoint URL ไม่ตรง: " + (e.message||e));
+      console.error("[liff.init]", e);
+      return;
+    }
     if (!liff.isLoggedIn()) {
       liff.login({ redirectUri: location.href });
     } else {
