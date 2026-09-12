@@ -3015,7 +3015,12 @@
       toast(`↓ โหลด ${S.sheetCustomers.length} ลูกค้าจาก Sheet ✓`);
       return true;
     } catch (e) {
-      toast("❌ โหลดลูกค้าไม่ได้: " + e.message);
+      const msg = String(e.message||e);
+      if (msg.includes('unknown action')) {
+        toast("⚠️ Apps Script ยังเป็นเวอร์ชันเก่า → ตั้งค่า → 🔬 ตรวจสอบระบบ");
+      } else {
+        toast("❌ โหลดลูกค้าไม่ได้: " + msg);
+      }
       return false;
     }
   }
@@ -3160,7 +3165,7 @@
       <div class="admin-header">
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
           <div style="font-size:24px">${icon || '🔧'}</div>
-          <div style="flex:1"><h1 style="margin:0;font-size:22px">${title}</h1><div style="font-size:12px;color:var(--text-muted)">${S.sheetApiUrl ? `<span style="color:var(--wholesale)">🔗 Sheet เชื่อมแล้ว</span>${S.sheetLastSync ? ` · sync ล่าสุด ${new Date(S.sheetLastSync).toLocaleString('th-TH')}` : ''}` : '<span style="color:var(--brand)">⚠️ ยังไม่เชื่อม Sheet</span>'}</div></div>
+          <div style="flex:1"><h1 style="margin:0;font-size:22px">${title}</h1><div style="font-size:12px;color:var(--text-muted)">${S.sheetApiUrl ? `<span style="color:var(--wholesale)">🔗 Sheet เชื่อมแล้ว</span>${S.sheetLastSync ? ` · sync ล่าสุด ${new Date(S.sheetLastSync).toLocaleString('th-TH')}` : ''}<br><span style="font-family:monospace;font-size:10px;opacity:.7">deploy: ...${esc((S.sheetApiUrl.match(/\/s\/([^\/]+)\//)||[,''])[1].slice(-12))} <a onclick="go('/admin/settings')" style="color:var(--brand);cursor:pointer">เปลี่ยน</a></span>` : '<span style="color:var(--brand)">⚠️ ยังไม่เชื่อม Sheet</span>'}</div></div>
           ${extra}
         </div>
       </div>
