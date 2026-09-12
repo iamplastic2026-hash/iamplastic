@@ -1018,6 +1018,41 @@
   // =======================================================
   // STATE
   // =======================================================
+  // ============================================================
+  // ค่าศูนย์กลางของระบบ (Single Source of Truth)
+  //
+  // URL ของ Apps Script ต้องมาจาก "โค้ดที่ deploy" เท่านั้น
+  // ห้ามเก็บถาวรใน localStorage ของแต่ละเครื่อง เพราะเครื่องที่เคยตั้งค่าไว้
+  // จะยิงไป deployment เก่าตลอดไป → เห็นข้อมูลคนละชุดกับเครื่องอื่น
+  // (นี่คือสาเหตุของอาการ "รีหน้าแล้วข้อมูลไม่เหมือนกัน")
+  //
+  // ถ้าเปลี่ยน deployment ใหม่: แก้ SHEET_API_URL ตรงนี้ → push ขึ้น GitHub
+  // แล้วทุกเครื่องจะเปลี่ยนตามพร้อมกันเอง
+  // ============================================================
+  const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbwds-ztZYeRIdoe2Mtw2uXrwN_8Yr8acv7mJo4wn7xFac0InCkbC6Q4EYOCsoRN_rOr/exec";
+  const SHEET_TOKEN   = "iamplastic_secret_2026";
+
+  // Override เฉพาะเครื่องนี้ — ใช้ตอนทดสอบ deployment ใหม่เท่านั้น
+  // มีแถบเตือนสีแดงค้างบนจอตลอดเวลาที่ยังเปิดใช้อยู่
+  const OVERRIDE_URL_KEY   = "iamplastic.sheetApiUrlOverride";
+  const OVERRIDE_TOKEN_KEY = "iamplastic.sheetTokenOverride";
+  function centralApiUrl() { return safeGet(OVERRIDE_URL_KEY, "") || SHEET_API_URL; }
+  function centralToken()  { return safeGet(OVERRIDE_TOKEN_KEY, "") || SHEET_TOKEN; }
+  function hasApiOverride(){ return !!safeGet(OVERRIDE_URL_KEY, ""); }
+
+  // ล้าง key เก่าที่เคยเก็บ URL/Token ไว้ถาวร — เครื่องเก่าจะได้เลิกยิงไป deployment เดิม
+  (function purgeLegacyApiConfig() {
+    try {
+      ["iamplastic.sheetApiUrl", "iamplastic.sheetToken"].forEach(k => {
+        if (localStorage.getItem(k) !== null) {
+          console.warn("[config] ลบค่าเก่าใน localStorage:", k);
+          localStorage.removeItem(k);
+        }
+      });
+    } catch (e) {}
+  })();
+
+
   const S = {
     mode: safeGet("iamplastic.mode", "retail"),
     cart: safeGet("iamplastic.cart", []),
@@ -1029,10 +1064,10 @@
     productOverrides: safeGet("iamplastic.productOverrides", {}),
     deletedProducts: safeGet("iamplastic.deletedProducts", []),
     newProducts: safeGet("iamplastic.newProducts", []),
-    // Google Sheet sync — DEFAULT URL ทำให้ทุก browser เชื่อม Sheet อัตโนมัติ
-    // ใช้ || เพื่อ replace ค่า "" ที่เก่าค้างใน localStorage
-    sheetApiUrl: safeGet("iamplastic.sheetApiUrl", "") || "https://script.google.com/macros/s/AKfycbwjsZOUAwp8kzty-sVAMRKEyiYvDJ49AAAr-mqCWTQlbUXarUNG4VqGNLrtsVUraEe6/exec",
-    sheetToken: safeGet("iamplastic.sheetToken", "") || "iamplastic_secret_2026",
+    // Google Sheet sync — อ่านจากค่าศูนย์กลาง (SHEET_API_URL) ไม่ใช่ localStorage
+    // ดูคำอธิบายที่บล็อก "ค่าศูนย์กลางของระบบ" ด้านบน
+    sheetApiUrl: centralApiUrl(),
+    sheetToken: centralToken(),
     sheetProducts: safeGet("iamplastic.sheetProducts", null),
     sheetOrders: safeGet("iamplastic.sheetOrders", null),
     sheetBills: safeGet("iamplastic.sheetBills", { cash: [], tax: [] }),
@@ -1139,56 +1174,50 @@
     `;
   }
   function safeSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  // ============================================================
+  // แยกข้อมูล 2 ประเภทให้ขาดจากกัน — นี่คือหัวใจที่เคยทำให้แท็บเห็นข้อมูลไม่ตรงกัน
+  //
+  // LOCAL_KEYS  = ข้อมูลของเครื่องนี้เอง (ตะกร้า, login, รายการโปรด)
+  //               → saveState() เขียนได้ตามปกติ
+  //
+  // SYNCED_KEYS = ข้อมูลที่มาจาก Google Sheet (ลูกค้า, คลิป, ออเดอร์, ตั้งค่าร้าน, URL)
+  //               → saveState() ห้ามแตะ! เขียนได้เฉพาะฟังก์ชันที่เพิ่งดึง/ส่งข้อมูลนั้นจริงๆ
+  //               เพราะ saveState() ถูกเรียกจาก 60+ จุด ถ้าเขียนด้วย
+  //               แท็บที่ถือข้อมูลเก่าจะเขียนทับข้อมูลใหม่ตลอดเวลา
+  // ============================================================
+  const LOCAL_KEYS = [
+    "mode", "cart", "coupon", "orders", "wishlist",
+    "adminAuth", "adminUser", "adminPassHash",
+    "productOverrides", "deletedProducts", "newProducts",
+    "user", "registeredUsers", "lineProfile",
+    "tiktokAutoplay", "autoSync",
+  ];
+
+  const SYNCED_KEYS = [
+    "sheetLastSync",   // sheetApiUrl / sheetToken ไม่อยู่ที่นี่แล้ว — มาจาก SHEET_API_URL ในโค้ด
+    "sheetProducts", "sheetOrders", "sheetBills",
+    "sheetCustomers", "sheetCoupons", "sheetReviews",
+    "tiktokVideos", "banners",
+    "promptPayId", "customQrImage",
+    "bankName", "bankAccountName", "bankAccountNo",
+    "bankName2", "bankAccountName2", "bankAccountNo2",
+    "shopName", "shopAddress", "shopPhone",
+    "slipokApiKey", "slipokBranchId",
+    "cloudinaryCloud", "cloudinaryPreset",
+    "gaTagId", "liffId",
+    "lineOA", "messengerUrl", "tiktokUrl", "youtubeUrl", "contactEmail",
+  ];
+
   function saveState() {
-    safeSet("iamplastic.mode", S.mode);
-    safeSet("iamplastic.cart", S.cart);
-    safeSet("iamplastic.coupon", S.coupon);
-    safeSet("iamplastic.orders", S.orders);
-    safeSet("iamplastic.adminAuth", S.adminAuth);
-    safeSet("iamplastic.adminUser", S.adminUser);
-    safeSet("iamplastic.adminPassHash", S.adminPassHash);
-    safeSet("iamplastic.productOverrides", S.productOverrides);
-    safeSet("iamplastic.deletedProducts", S.deletedProducts);
-    safeSet("iamplastic.newProducts", S.newProducts);
-    safeSet("iamplastic.sheetApiUrl", S.sheetApiUrl);
-    safeSet("iamplastic.sheetToken", S.sheetToken);
-    safeSet("iamplastic.sheetProducts", S.sheetProducts);
-    safeSet("iamplastic.sheetOrders", S.sheetOrders);
-    safeSet("iamplastic.sheetBills", S.sheetBills);
-    safeSet("iamplastic.sheetCustomers", S.sheetCustomers);
-    safeSet("iamplastic.promptPayId", S.promptPayId);
-    safeSet("iamplastic.customQrImage", S.customQrImage);
-    safeSet("iamplastic.bankName", S.bankName);
-    safeSet("iamplastic.bankAccountName", S.bankAccountName);
-    safeSet("iamplastic.bankAccountNo", S.bankAccountNo);
-    safeSet("iamplastic.bankName2", S.bankName2);
-    safeSet("iamplastic.bankAccountName2", S.bankAccountName2);
-    safeSet("iamplastic.bankAccountNo2", S.bankAccountNo2);
-    safeSet("iamplastic.shopName", S.shopName);
-    safeSet("iamplastic.shopAddress", S.shopAddress);
-    safeSet("iamplastic.shopPhone", S.shopPhone);
-    safeSet("iamplastic.slipokApiKey", S.slipokApiKey);
-    safeSet("iamplastic.slipokBranchId", S.slipokBranchId);
-    safeSet("iamplastic.cloudinaryCloud", S.cloudinaryCloud);
-    safeSet("iamplastic.cloudinaryPreset", S.cloudinaryPreset);
-    safeSet("iamplastic.gaTagId", S.gaTagId);
-    safeSet("iamplastic.liffId", S.liffId);
-    safeSet("iamplastic.lineProfile", S.lineProfile);
-    safeSet("iamplastic.lineOA", S.lineOA);
-    safeSet("iamplastic.messengerUrl", S.messengerUrl);
-    safeSet("iamplastic.tiktokUrl", S.tiktokUrl);
-    safeSet("iamplastic.youtubeUrl", S.youtubeUrl);
-    safeSet("iamplastic.contactEmail", S.contactEmail);
-    safeSet("iamplastic.tiktokVideos", S.tiktokVideos);
-    safeSet("iamplastic.banners", S.banners);
-    safeSet("iamplastic.wishlist", S.wishlist);
-    safeSet("iamplastic.sheetCoupons", S.sheetCoupons);
-    safeSet("iamplastic.sheetReviews", S.sheetReviews);
-    safeSet("iamplastic.tiktokAutoplay", S.tiktokAutoplay);
-    safeSet("iamplastic.sheetLastSync", S.sheetLastSync);
-    safeSet("iamplastic.autoSync", S.autoSync);
-    safeSet("iamplastic.user", S.user);
-    safeSet("iamplastic.registeredUsers", S.registeredUsers);
+    LOCAL_KEYS.forEach(k => safeSet("iamplastic." + k, S[k]));
+  }
+
+  // เขียนข้อมูลฝั่ง Sheet ลง localStorage — เรียกเฉพาะหลังดึง/ส่งข้อมูลนั้นสำเร็จ
+  function saveSynced(...keys) {
+    keys.flat().forEach(k => {
+      if (SYNCED_KEYS.indexOf(k) < 0) { console.warn("[saveSynced] ไม่รู้จัก key:", k); return; }
+      safeSet("iamplastic." + k, S[k]);
+    });
   }
 
   // Auth helpers
@@ -1210,17 +1239,32 @@
   // =======================================================
   // Google Sheet API sync
   // =======================================================
-  // อ่าน URL/token จาก localStorage ทุกครั้ง — แท็บที่เปิดค้างไว้จะได้ไม่ถือค่าเก่า
-  // (เคยเจอ: แท็บเก่ายิงไป deployment เดิม เห็นข้อมูลคนละชุดกับแท็บใหม่)
+  // URL/Token มาจากโค้ด (SHEET_API_URL) เสมอ — ไม่ใช่จาก localStorage ของเครื่องใคร
+  // ทุกเครื่องที่โหลดไฟล์เดียวกัน จึงยิงไป Apps Script ตัวเดียวกันแน่นอน
   function liveSheetConfig() {
-    const url = safeGet("iamplastic.sheetApiUrl", "") || S.sheetApiUrl;
-    const token = safeGet("iamplastic.sheetToken", "") || S.sheetToken;
-    if (url && url !== S.sheetApiUrl) {
-      console.warn("[config] URL เปลี่ยนจากแท็บอื่น — ใช้ค่าใหม่");
-      S.sheetApiUrl = url;
+    const url = centralApiUrl(), token = centralToken();
+    // sync กลับเข้า S เผื่อมีโค้ดเก่าอ่าน S.sheetApiUrl ตรงๆ
+    if (S.sheetApiUrl !== url) S.sheetApiUrl = url;
+    if (S.sheetToken !== token) S.sheetToken = token;
+    return { url, token };
+  }
+
+  // ตั้ง override เฉพาะเครื่องนี้ (โหมดทดสอบ) — ส่ง url ว่างเพื่อกลับไปใช้ค่าศูนย์กลาง
+  function setApiOverride(url, token) {
+    if (!url || url === SHEET_API_URL) {
+      try { localStorage.removeItem(OVERRIDE_URL_KEY); localStorage.removeItem(OVERRIDE_TOKEN_KEY); } catch (e) {}
+    } else {
+      safeSet(OVERRIDE_URL_KEY, url);
+      safeSet(OVERRIDE_TOKEN_KEY, token || SHEET_TOKEN);
     }
-    if (token && token !== S.sheetToken) S.sheetToken = token;
-    return { url: S.sheetApiUrl, token: S.sheetToken };
+    liveSheetConfig();
+  }
+
+  function clearApiOverride() {
+    setApiOverride("");
+    toast("✓ กลับมาใช้ URL ศูนย์กลางแล้ว");
+    render();
+    setTimeout(() => location.reload(), 600);
   }
 
   async function apiCall(action, extra = {}, isPost = false, timeoutMs = 25000) {
@@ -1272,6 +1316,7 @@
       if (!res.ok) throw new Error(res.error || "API error");
       S.sheetProducts = res.products || [];
       S.sheetLastSync = Date.now();
+      saveSynced('sheetProducts','sheetLastSync');
       saveState();
       toast(`↓ โหลด ${S.sheetProducts.length} สินค้าจาก Sheet ✓`);
       return true;
@@ -1739,16 +1784,23 @@
     if (!(prop in S)) return;
     try {
       S[prop] = e.newValue ? JSON.parse(e.newValue) : S[prop];
-      if (prop === 'sheetApiUrl') {
-        toast("🔗 URL เปลี่ยนจากแท็บอื่น — กำลังดึงข้อมูลใหม่");
-        pullPromosFromSheet().catch(()=>{});
-        pullSettingsFromSheet().catch(()=>{});
-      }
+      // URL ไม่ได้อยู่ใน localStorage แล้ว จึงไม่มีเคส "แท็บอื่นเปลี่ยน URL" อีก
       render();
     } catch (err) { console.warn("[storage sync]", prop, err); }
   });
 
   // เตือนถ้าแท็บนี้รันโค้ดเก่ากว่าที่ deploy อยู่ (เปิดค้างไว้ข้ามการอัปเดต)
+  // แถบเตือนค้างจอ ถ้าเครื่องนี้ยังใช้ URL ทดสอบอยู่ (จะได้ไม่ลืมแล้วงงว่าข้อมูลไม่ตรงคนอื่น)
+  function showOverrideBanner() {
+    if (!hasApiOverride() || document.getElementById('api-override-bar')) return;
+    const bar = document.createElement('div');
+    bar.id = 'api-override-bar';
+    bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:3001;background:#7A1D2A;color:#fff;padding:8px 16px;font-size:12px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap';
+    bar.innerHTML = `⚠️ เครื่องนี้ใช้ URL ทดสอบ — ข้อมูลอาจไม่ตรงกับเครื่องอื่น
+      <button onclick="clearApiOverride()" style="background:#fff;color:#7A1D2A;border:none;padding:4px 14px;border-radius:99px;font-weight:800;cursor:pointer;font-family:inherit">↩️ กลับค่าศูนย์กลาง</button>`;
+    document.body.appendChild(bar);
+  }
+
   async function checkAppFresh() {
     try {
       const r = await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' });
@@ -1782,6 +1834,7 @@
     autoLoadFromSheet();
     // LIFF init (ถ้าตั้งค่า)
     if (S.liffId) initLIFF();
+    showOverrideBanner();
     setTimeout(checkAppFresh, 3000);
 
     // กลับมาที่แท็บนี้ → ดึงคลิป/ตั้งค่าใหม่ (กันสองแท็บข้อมูลไม่ตรงกัน)
@@ -2769,7 +2822,7 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 45;
+  const APP_VERSION = 47;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -3208,6 +3261,7 @@
       const res = await apiCall("customers");
       if (!res.ok) throw new Error(res.error);
       S.sheetCustomers = res.customers || [];
+      saveSynced('sheetCustomers');
       saveState();
       toast(`↓ โหลด ${S.sheetCustomers.length} ลูกค้าจาก Sheet ✓`);
       return true;
@@ -3299,8 +3353,10 @@
     el.style.display = el.style.display === "none" ? "block" : "none";
   }
   function saveSheetSettings() {
-    S.sheetApiUrl = document.getElementById("sheet-url").value.trim();
-    S.sheetToken = document.getElementById("sheet-token").value.trim() || "iamplastic_secret_2026";
+    setApiOverride(
+      document.getElementById("sheet-url").value.trim(),
+      document.getElementById("sheet-token").value.trim()
+    );
     S.autoSync = document.getElementById("sheet-autosync").checked;
     saveState();
     toast("บันทึกการตั้งค่าแล้ว ✓");
@@ -3492,6 +3548,7 @@
       const res = await apiCall("orders");
       if (!res.ok) throw new Error(res.error);
       S.sheetOrders = res.orders || [];
+      saveSynced('sheetOrders');
       saveState();
       toast(`↓ โหลด ${S.sheetOrders.length} คำสั่งซื้อจาก Sheet ✓`);
       return true;
@@ -3507,6 +3564,7 @@
       const res = await apiCall("bills");
       if (!res.ok) throw new Error(res.error);
       S.sheetBills = { cash: res.cash || [], tax: res.tax || [] };
+      saveSynced('sheetBills');
       saveState();
       toast(`↓ โหลดบิล: เงินสด ${S.sheetBills.cash.length} · ใบกำกับ ${S.sheetBills.tax.length} ✓`);
       return true;
@@ -3597,7 +3655,7 @@
   // =========================
   async function pullCouponsFromSheet() {
     if (!S.sheetApiUrl) return;
-    try { const res = await apiCall("listCoupons"); if (res.ok) { S.sheetCoupons = res.coupons||[]; saveState(); } } catch(e){}
+    try { const res = await apiCall("listCoupons"); if (res.ok) { S.sheetCoupons = res.coupons||[]; saveSynced('sheetCoupons'); } } catch(e){}
   }
   function viewAdminCoupons() {
     if (S.sheetApiUrl && (Date.now()-(S.couponsLastSync||0))>10000) {
@@ -3715,7 +3773,7 @@
     const emoji = image?'':prompt("Emoji ใหญ่ (ถ้าไม่มีรูป):","📦")||'📦';
     S.banners = S.banners || [];
     S.banners.push({ title, subtitle, cta, link, image, emoji, color1:'#AB2739', color2:'#7A1929' });
-    saveState(); savePromosToSheet(); toast("✓ เพิ่ม banner (sync ขึ้น Sheet)"); render();
+    saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet(); toast("✓ เพิ่ม banner (sync ขึ้น Sheet)"); render();
   }
   function editBanner(i) {
     const b = S.banners[i]; if (!b) return;
@@ -3724,11 +3782,11 @@
     b.cta = prompt("ปุ่ม CTA:", b.cta)||'';
     b.link = prompt("URL:", b.link)||'';
     b.image = prompt("URL รูป:", b.image)||'';
-    saveState(); savePromosToSheet(); toast("✓ อัพเดต"); render();
+    saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet(); toast("✓ อัพเดต"); render();
   }
   function deleteBanner(i) {
     if (!confirm("ลบ banner นี้?")) return;
-    S.banners.splice(i,1); saveState(); savePromosToSheet(); render();
+    S.banners.splice(i,1); saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet(); render();
   }
 
   let _lastTiktokError = '';
@@ -3759,7 +3817,7 @@
     const views = prompt("ยอด view (optional · ปล่อยว่างได้):","")||'';
     S.tiktokVideos = S.tiktokVideos || [];
     S.tiktokVideos.unshift({ url, title, thumbnail, author, views, createdAt: new Date().toISOString() });
-    saveState();
+    saveState(); saveSynced('tiktokVideos','banners');
     savePromosToSheet();
     toast(meta ? `✓ เพิ่มคลิป: ${title.slice(0,40)} · sync แล้ว` : "✓ เพิ่มคลิป · sync แล้ว");
     render();
@@ -3775,7 +3833,7 @@
       v.author = meta.author || v.author;
       // อัปเกรดลิงก์สั้นเป็น URL เต็ม → เล่นในเว็บได้
       if (meta.resolved && /\/video\/\d+/.test(meta.resolved)) v.url = meta.resolved;
-      saveState(); savePromosToSheet(); toast("✓ อัพเดตแล้ว"); render();
+      saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet(); toast("✓ อัพเดตแล้ว"); render();
     } else { toast("❌ ดึงไม่ได้: " + (_lastTiktokError||'')); }
   }
 
@@ -3791,11 +3849,11 @@
     v.title = prompt("Caption:", v.title||'') || v.title || '';
     v.thumbnail = prompt("Thumbnail URL:", v.thumbnail||'') || v.thumbnail || '';
     v.views = prompt("ยอด view:", v.views||'') || v.views || '';
-    saveState(); savePromosToSheet(); toast("✓ อัพเดต"); render();
+    saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet(); toast("✓ อัพเดต"); render();
   }
   function deleteTiktok(i) {
     if (!confirm("ลบคลิปนี้?")) return;
-    S.tiktokVideos.splice(i,1); saveState(); savePromosToSheet(); render();
+    S.tiktokVideos.splice(i,1); saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet(); render();
   }
 
   // =========================
@@ -4127,9 +4185,8 @@
   }
 
   function fixSheetToken() {
-    S.sheetToken = "iamplastic_secret_2026";
-    saveState();
-    toast("✓ แก้ Token แล้ว — ลองกด ✍️ ทดสอบเขียนลง Sheet");
+    setApiOverride("");   // ล้าง override → กลับไปใช้ SHEET_TOKEN จากโค้ด
+    toast("✓ กลับมาใช้ค่าศูนย์กลางแล้ว — ลองกด ✍️ ทดสอบเขียนลง Sheet");
     render();
     setTimeout(runBackendCheck, 200);
   }
@@ -4153,10 +4210,17 @@
         if (el) el.value = token;
       }
     }
-    S.sheetApiUrl = url;
-    S.sheetToken = token || "iamplastic_secret_2026";
+    if (url && url !== SHEET_API_URL) {
+      if (!confirm(
+        "⚠️ URL นี้จะใช้เฉพาะ 'เครื่องนี้' เท่านั้น (โหมดทดสอบ)\n\n" +
+        "เครื่องอื่นยังยิงไป URL ศูนย์กลางที่ฝังในโค้ดอยู่ — ข้อมูลจะไม่ตรงกัน\n\n" +
+        "ถ้าต้องการเปลี่ยนให้ทุกเครื่องพร้อมกัน ให้แก้ค่า SHEET_API_URL ใน index.html แล้ว push ขึ้น GitHub\n\n" +
+        "กด OK เพื่อใช้ชั่วคราวเฉพาะเครื่องนี้"
+      )) return;
+    }
+    setApiOverride(url, token);
     saveState();
-    toast("✓ บันทึก URL แล้ว · กำลังตรวจสอบ...");
+    toast(url && url !== SHEET_API_URL ? "⚠️ ใช้ URL ทดสอบเฉพาะเครื่องนี้" : "✓ ใช้ URL ศูนย์กลาง");
     render();
     setTimeout(runBackendCheck, 100);
   }
@@ -4462,7 +4526,7 @@
     if (!url) return;
     S.tiktokVideos = S.tiktokVideos || [];
     S.tiktokVideos.unshift({ url, title, thumbnail, views:'', createdAt: new Date().toISOString() });
-    saveState();
+    saveState(); saveSynced('tiktokVideos');
     document.getElementById('tt-url').value = '';
     render();
     savePromosToSheet().then(ok => {
@@ -4487,7 +4551,7 @@
       const j = await res.json();
       if (!j.secure_url) { toast("อัพไม่สำเร็จ: " + (j.error?j.error.message:'unknown')); return; }
       S.tiktokVideos[i].previewVideo = j.secure_url;
-      saveState(); savePromosToSheet();
+      saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet();
       toast("✓ อัพวิดีโอสำเร็จ — คลิปนี้จะเล่นวนอัตโนมัติแล้ว");
       render();
     } catch (e) { toast("อัพไม่สำเร็จ: " + e.message); }
@@ -4498,7 +4562,7 @@
     const j = i + dir;
     if (j < 0 || j >= list.length) return;
     [list[i], list[j]] = [list[j], list[i]];
-    saveState(); savePromosToSheet(); render();
+    saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet(); render();
   }
 
   // =========================
@@ -4520,34 +4584,45 @@
       <div id="backend-check">${S._diagHtml || ''}</div>
 
       <div class="co-card" style="margin:0 0 16px;border:2px solid var(--brand)">
-        <h3 style="margin:0 0 4px">🔗 เชื่อมต่อ Google Sheet</h3>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
-          URL นี้คือ <b>Web app URL</b> ของ Apps Script · ถ้าเคยกด "New deployment" จะได้ URL ใหม่ ต้องเอามาใส่ตรงนี้
+        <h3 style="margin:0 0 4px">🔗 การเชื่อมต่อ Google Sheet</h3>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.7">
+          URL นี้ <b>ฝังอยู่ในโค้ด</b> (ตัวแปร <code>SHEET_API_URL</code> ใน index.html) ไม่ได้เก็บในเครื่องใคร<br>
+          ทุกเครื่องที่เปิดเว็บนี้จึงยิงไป Apps Script ตัวเดียวกันเสมอ — ข้อมูลตรงกันแน่นอน
         </div>
-        <label style="display:block;margin-bottom:10px">
-          <span style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Web app URL (ลงท้าย /exec)</span>
-          <input id="sheet-url-main" value="${(S.sheetApiUrl||'').replace(/"/g,'&quot;')}"
-            placeholder="https://script.google.com/macros/s/AKfycb.../exec"
-            style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:monospace">
-        </label>
-        <label style="display:block;margin-bottom:6px">
-          <span style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Secret Token — <b>ไม่ใช่</b> deployment ID</span>
-          <input id="sheet-token-main" value="${(S.sheetToken||'').replace(/"/g,'&quot;')}"
-            placeholder="iamplastic_secret_2026"
-            style="width:100%;padding:10px 12px;border:1px solid ${/^AKfyc/i.test(S.sheetToken||'')?'#DC2626':'var(--border)'};border-radius:6px;font-size:13px">
-        </label>
-        ${/^AKfyc/i.test(S.sheetToken||'') ? `
-          <div style="background:#fde8e8;border:1px solid #f5a3a3;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:12px;color:#b02a2a;line-height:1.7">
-            ❌ <b>Token ผิด</b> — ตอนนี้ใส่ deployment ID ไว้ ทำให้เขียนลง Sheet ไม่ได้<br>
-            ต้องเป็น <code style="background:#fff;padding:1px 6px;border-radius:3px">iamplastic_secret_2026</code>
-            <button class="btn btn-primary" style="display:block;margin-top:8px;font-size:12px" onclick="fixSheetToken()">🔧 แก้ให้อัตโนมัติ</button>
-          </div>`
-          : `<div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">ค่ามาตรฐานคือ <code>iamplastic_secret_2026</code> · ต้องตรงกับ <code>SECRET_TOKEN</code> ใน Code.gs</div>`}
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="saveSheetUrlMain()">💾 บันทึก URL</button>
+
+        <div style="background:var(--surface-2,#f6f6f6);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:4px">URL ศูนย์กลาง (ใช้อยู่จริง)</div>
+          <code style="font-size:10px;word-break:break-all;display:block;line-height:1.6">${esc(liveSheetConfig().url)}</code>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:8px">
+            Token: <code>${esc(liveSheetConfig().token)}</code> · เว็บ v${APP_VERSION}
+          </div>
+        </div>
+
+        ${hasApiOverride() ? `
+          <div style="background:#fde8e8;border:1px solid #f5a3a3;padding:12px;border-radius:8px;margin-bottom:12px;font-size:12px;color:#b02a2a;line-height:1.7">
+            ⚠️ <b>เครื่องนี้ใช้ URL ทดสอบอยู่</b> — ไม่ตรงกับเครื่องอื่น<br>
+            <button class="btn btn-primary" style="margin-top:8px;font-size:12px" onclick="clearApiOverride()">↩️ กลับไปใช้ URL ศูนย์กลาง</button>
+          </div>` : ''}
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
           <button class="btn btn-outline" onclick="runBackendCheck()">🔬 ตรวจสอบทันที</button>
           <button class="btn btn-outline" onclick="runWriteTest()" style="border-color:var(--brand);color:var(--brand)">✍️ ทดสอบเขียนลง Sheet</button>
         </div>
+
+        <details style="border-top:1px solid var(--border);padding-top:10px">
+          <summary style="cursor:pointer;font-size:12px;color:var(--text-muted)">⚙️ โหมดช่าง — ใช้ URL อื่นชั่วคราวเฉพาะเครื่องนี้</summary>
+          <div style="font-size:11px;color:var(--text-muted);margin:10px 0;line-height:1.7">
+            ใช้ตอนทดสอบ deployment ใหม่เท่านั้น · <b>เครื่องอื่นจะไม่เปลี่ยนตาม</b><br>
+            ถ้าจะเปลี่ยนถาวรให้ทุกเครื่อง: แก้ <code>SHEET_API_URL</code> ใน index.html แล้ว push ขึ้น GitHub
+          </div>
+          <input id="sheet-url-main" value="${(hasApiOverride() ? liveSheetConfig().url : '').replace(/"/g,'&quot;')}"
+            placeholder="${SHEET_API_URL}"
+            style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:monospace;margin-bottom:8px">
+          <input id="sheet-token-main" value="${(hasApiOverride() ? liveSheetConfig().token : '').replace(/"/g,'&quot;')}"
+            placeholder="${SHEET_TOKEN}"
+            style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:8px">
+          <button class="btn btn-outline" onclick="saveSheetUrlMain()">บันทึกเฉพาะเครื่องนี้</button>
+        </details>
         <div id="write-test">${S._writeTestHtml || ''}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -4702,7 +4777,7 @@
     if (url) {
       document.getElementById('set-customQrImage').value = url;
       S.customQrImage = url;
-      saveState(); pushSettingsToSheet();
+      saveState(); saveSynced('customQrImage'); pushSettingsToSheet();
       toast("✓ อัพ QR สำเร็จ · บันทึกแล้ว");
       render();
     }
@@ -4710,7 +4785,7 @@
   function clearCustomQr() {
     if (!confirm("ลบ QR ที่อัพไว้? (จะกลับไปใช้ QR auto-gen จาก PromptPay)")) return;
     S.customQrImage = '';
-    saveState(); pushSettingsToSheet();
+    saveState(); saveSynced('customQrImage'); pushSettingsToSheet();
     toast("✓ กลับไปใช้ QR auto-gen"); render();
   }
   function copyText(txt, label) {
@@ -4744,6 +4819,7 @@
     S.youtubeUrl = g('youtubeUrl');
     S.contactEmail = g('contactEmail');
     saveState();
+    saveSynced(SETTING_KEYS);
     pushSettingsToSheet(); // sync ขึ้น Sheet → ทุก URL / browser เห็นเหมือนกัน
     toast("✓ บันทึกแล้ว · sync ขึ้น Sheet");
     render();
@@ -4843,7 +4919,7 @@
   // =========================
   async function pullReviewsFromSheet() {
     if (!S.sheetApiUrl) return;
-    try { const res = await apiCall("listReviews"); if (res.ok) { S.sheetReviews = res.reviews||[]; saveState(); } } catch(e){}
+    try { const res = await apiCall("listReviews"); if (res.ok) { S.sheetReviews = res.reviews||[]; saveSynced('sheetReviews'); } } catch(e){}
   }
 
   // Shop settings sync กับ Sheet (แก้ปัญหา Vercel preview URL localStorage หาย)
@@ -4860,7 +4936,7 @@
         SETTING_KEYS.forEach(k => {
           if (res.settings[k] !== undefined && res.settings[k] !== '') S[k] = res.settings[k];
         });
-        saveState();
+        saveSynced(SETTING_KEYS);
         // liffId เพิ่งมาจาก Sheet → เริ่ม LIFF ตอนนี้ (ตอน page load ยังไม่มีค่า)
         if (S.liffId && !window.liff) initLIFF();
       }
@@ -4911,7 +4987,7 @@
 
       S.banners = remoteBn;
       S.tiktokVideos = remoteTt;
-      saveState();
+      saveSynced('banners','tiktokVideos');
     } catch(e){ console.error("[promos pull]", e); }
   }
 
