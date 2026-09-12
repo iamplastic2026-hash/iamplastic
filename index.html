@@ -3770,6 +3770,82 @@
   // =========================
   // BACKEND CHECK — บอกว่า Apps Script deploy version ใหม่หรือยัง
   // =========================
+  // ทดสอบเขียนจริงลง Sheet แล้วโชว์คำตอบดิบ — ใช้หาสาเหตุตอน "ข้อมูลไม่ขึ้น Sheet"
+  async function runWriteTest() {
+    const box = document.getElementById('write-test');
+    if (!box) return;
+    if (!S.sheetApiUrl) { box.innerHTML = `<div style="margin-top:10px;padding:12px;background:#fde8e8;border:1px solid #f5a3a3;border-radius:8px;font-size:13px">❌ ยังไม่ได้ตั้ง URL</div>`; return; }
+
+    const stamp = new Date().toLocaleTimeString('th-TH');
+    const testData = {
+      name: `[TEST ${stamp}]`,
+      firstName: 'ทดสอบ', lastName: 'ระบบ',
+      phone: '0000000000', email: `test-${Date.now()}@example.com`,
+      address: 'แถวทดสอบ — ลบทิ้งได้',
+      registeredAt: new Date().toISOString(),
+    };
+
+    box.innerHTML = `<div style="margin-top:10px;padding:12px;color:var(--text-muted);font-size:13px">⏳ กำลังเขียนแถวทดสอบ...</div>`;
+
+    const lines = [];
+    const add = (ok, txt) => lines.push(`<div style="display:flex;gap:8px;padding:3px 0;font-size:13px"><span>${ok===null?'•':(ok?'✅':'❌')}</span><span style="flex:1">${txt}</span></div>`);
+
+    add(null, `URL: <code style="font-size:10px;word-break:break-all">${esc(S.sheetApiUrl)}</code>`);
+    add(null, `Token: <code style="font-size:11px">${esc(S.sheetToken||'(ว่าง)')}</code>`);
+
+    // 1) เขียน
+    let writeRes;
+    try {
+      writeRes = await apiCall("registerCustomer", { data: testData }, true);
+    } catch (e) {
+      writeRes = { ok: false, error: 'exception: ' + (e.message||e) };
+    }
+    const wrote = !!(writeRes && writeRes.ok);
+    add(wrote, wrote ? 'เขียนสำเร็จ (backend ตอบ ok:true)' : 'เขียนไม่สำเร็จ');
+    add(null, `คำตอบดิบ: <code style="font-size:11px;word-break:break-all">${esc(JSON.stringify(writeRes))}</code>`);
+
+    // 2) อ่านกลับ
+    let readRes;
+    try {
+      readRes = await apiCall("customers");
+    } catch (e) {
+      readRes = { ok: false, error: 'exception: ' + (e.message||e) };
+    }
+    const readOk = !!(readRes && readRes.ok);
+    const count = readOk ? (readRes.customers||[]).length : 0;
+    add(readOk, readOk ? `อ่านกลับได้ ${count} แถว` : `อ่านกลับไม่ได้: ${esc((readRes&&readRes.error)||'')}`);
+
+    const found = readOk && (readRes.customers||[]).some(c => c.name === testData.name);
+    add(found, found ? 'เจอแถวทดสอบที่เพิ่งเขียน — <b>ระบบทำงานครบวงจร</b>' : 'ไม่เจอแถวทดสอบในข้อมูลที่อ่านกลับมา');
+
+    // สรุปสาเหตุ
+    let verdict;
+    if (wrote && found) {
+      verdict = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.1);font-size:13px;color:#0B7A3E">
+        ✅ <b>ทุกอย่างปกติ</b> — ไปลบแถว <code>[TEST ...]</code> ใน Sheet tab <b>customers</b> ทิ้งได้เลย<br>
+        ถ้าลูกค้าที่สมัครก่อนหน้ายังไม่ขึ้น ให้เปิดเว็บจากเครื่องที่สมัคร แล้วกด <b>↑ Sync ขึ้น Sheet</b></div>`;
+    } else if (wrote && !found) {
+      verdict = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.1);font-size:13px;color:#7a5a00">
+        ⚠️ <b>เขียนได้ แต่อ่านกลับไม่เจอ</b> — เป็นบั๊ก rowsToObjects ที่แก้ใน Code.gs v37<br>
+        เปิด Sheet ดู tab <b>customers</b> ถ้ามีแถว <code>[TEST ...]</code> = ยืนยันว่าเขียนได้จริง<br>
+        <b>→ ต้อง deploy Code.gs v37</b></div>`;
+    } else {
+      const err = String((writeRes && writeRes.error) || '');
+      let why = '';
+      if (err.includes('unauthorized')) why = 'Token ไม่ตรงกับ <code>SECRET_TOKEN</code> ใน Code.gs';
+      else if (err.includes('unknown action')) why = 'Apps Script เป็นเวอร์ชันเก่า — ต้อง deploy ใหม่';
+      else if (err.includes('Network') || err.includes('Failed to fetch')) why = 'เรียก URL ไม่ได้ — URL ผิด หรือ deploy ไม่ได้ตั้ง "Anyone"';
+      else if (err.includes('not JSON')) why = 'ได้หน้า HTML แทน JSON — มักเกิดจาก deploy ตั้งเป็น "Only myself" แทน "Anyone"';
+      else why = 'ดูคำตอบดิบด้านบนประกอบ';
+      verdict = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.1);font-size:13px;color:#b02a2a">
+        ❌ <b>เขียนลง Sheet ไม่ได้</b><br>สาเหตุน่าจะเป็น: ${why}</div>`;
+    }
+
+    const bg = (wrote && found) ? '#e6f7ed' : wrote ? '#fff3cd' : '#fde8e8';
+    const bd = (wrote && found) ? '#8ed9ae' : wrote ? '#ffc107' : '#f5a3a3';
+    box.innerHTML = `<div style="margin-top:10px;background:${bg};border:1px solid ${bd};padding:12px 14px;border-radius:8px">${lines.join('')}${verdict}</div>`;
+  }
+
   async function testLiff() {
     const box = document.getElementById('liff-test');
     if (!box) return;
@@ -3882,15 +3958,27 @@
       results.push({ action:'getadmin', label:'รหัสแอดมิน (admin)', need:'v33', ok:false });
     }
 
+    // อ่านเวอร์ชัน backend จาก ping
+    let backendVer = null;
+    try { const p = await apiCall('ping'); backendVer = (p && p.version) || null; } catch(e){}
+    const EXPECTED_BACKEND = 37;
+
     const failed = results.filter(r => !r.ok);
-    const allOk = failed.length === 0;
+    const allOk = failed.length === 0 && backendVer === EXPECTED_BACKEND;
     // หา version ต่ำสุดที่ fail → บอกว่า deploy ค้างอยู่รุ่นไหน
     const oldestFail = failed.length ? failed[0].need : null;
 
     box.innerHTML = `
       <div style="background:${allOk?'#e6f7ed':'#fff3cd'};border:1px solid ${allOk?'#8ed9ae':'#ffc107'};padding:14px 16px;border-radius:10px;margin-bottom:16px">
-        <div style="font-weight:800;font-size:15px;margin-bottom:10px;color:${allOk?'#0B7A3E':'#7a5a00'}">
-          ${allOk ? '✅ Backend เป็นเวอร์ชันล่าสุด — ทุกฟีเจอร์พร้อมใช้' : `⚠️ Backend เป็นเวอร์ชันเก่า — มี ${failed.length} ฟีเจอร์ใช้ไม่ได้`}
+        <div style="font-weight:800;font-size:15px;margin-bottom:6px;color:${allOk?'#0B7A3E':'#7a5a00'}">
+          ${allOk ? '✅ Backend เป็นเวอร์ชันล่าสุด — ทุกฟีเจอร์พร้อมใช้'
+                  : (backendVer === null ? '⚠️ Backend เป็นเวอร์ชันเก่ามาก (ไม่บอกเวอร์ชัน)'
+                     : backendVer !== 37 ? `⚠️ Backend เป็น v${backendVer} — ต้องการ v37`
+                     : `⚠️ มี ${failed.length} ฟีเจอร์ใช้ไม่ได้`)}
+        </div>
+        <div style="font-size:12px;margin-bottom:10px;color:var(--text-muted);font-family:monospace">
+          Code.gs ที่ deploy: <b>${backendVer ? 'v'+backendVer : 'ต่ำกว่า v37'}</b> · ต้องการ: <b>v37</b>
+          ${backendVer === 37 ? ' <span style="color:#0B7A3E">✓ ตรง</span>' : ' <span style="color:#DC2626">✗ ไม่ตรง</span>'}
         </div>
         <table style="width:100%;font-size:13px;border-collapse:collapse">
           ${results.map(r => `<tr style="border-bottom:1px solid rgba(0,0,0,.06)">
@@ -3928,8 +4016,15 @@
 
       <div class="co-card" style="margin:0 0 16px;border:2px solid var(--brand)">
         <h3 style="margin:0 0 4px">➕ ลงคลิปใหม่</h3>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.7">
           paste URL คลิปแล้วกด <b>ดึงข้อมูล</b> → ระบบจะดึงรูป cover + caption ให้อัตโนมัติ
+        </div>
+        <div style="background:var(--surface-warm);border-left:3px solid var(--brand);padding:10px 12px;border-radius:0 6px 6px 0;margin-bottom:12px;font-size:12px;line-height:1.8">
+          <b>⚠️ ต้องเป็นลิงก์ "คลิป" ไม่ใช่ลิงก์ "ช่อง"</b><br>
+          ✅ ใช้ได้: <code style="font-size:11px">tiktok.com/@ชื่อช่อง<b style="color:var(--brand)">/video/</b>7412345...</code><br>
+          ✅ ใช้ได้: <code style="font-size:11px">vt.tiktok.com/ZSxxxxx</code> (ลิงก์สั้นจากปุ่มแชร์)<br>
+          ❌ ใช้ไม่ได้: <code style="font-size:11px">tiktok.com/@ชื่อช่อง?_r=1&_t=...</code><br>
+          <span style="color:var(--text-muted)">วิธีเอา: เปิดแอป TikTok → <b>กดเข้าไปในคลิป</b> → ปุ่มแชร์ → คัดลอกลิงก์</span>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
           <input id="tt-url" placeholder="https://www.tiktok.com/@ชื่อช่อง/video/123456..."
@@ -3973,16 +4068,65 @@
     `;
   }
 
+  // แยกประเภท URL TikTok: video (ใช้ได้) / short (ใช้ได้) / profile (ใช้ไม่ได้)
+  function classifyTiktokUrl(url) {
+    const u = String(url||'').trim();
+    if (!u) return { kind:'empty' };
+    if (/\/video\/\d+/.test(u)) return { kind:'video' };
+    if (/(vt|vm)\.tiktok\.com\//i.test(u)) return { kind:'short' };
+    if (/tiktok\.com\/@[^\/]+\/?(\?|$)/i.test(u)) {
+      const handle = (u.match(/@([^\/?&]+)/)||[,''])[1];
+      return { kind:'profile', handle };
+    }
+    if (/tiktok\.com/i.test(u)) return { kind:'unknown-tiktok' };
+    return { kind:'not-tiktok' };
+  }
+
   async function fetchTiktokIntoForm() {
     const url = (document.getElementById('tt-url')||{}).value || '';
     if (!url.trim()) { toast("paste URL คลิปก่อน"); return; }
     const box = document.getElementById('tt-form-result');
+
+    // ตรวจชนิด URL ก่อนยิงไป backend
+    const cls = classifyTiktokUrl(url);
+    if (cls.kind === 'profile') {
+      box.innerHTML = `
+        <div style="background:#fde8e8;border:1px solid #f5a3a3;padding:14px;border-radius:8px">
+          <div style="font-weight:800;color:#b02a2a;margin-bottom:8px">❌ นี่คือลิงก์ "ช่อง" ไม่ใช่ลิงก์ "คลิป"</div>
+          <div style="font-size:13px;color:#8a2020;line-height:1.75">
+            URL ที่ใช้ได้ต้องมี <code style="background:#fff;padding:1px 5px;border-radius:3px">/video/</code> อยู่ข้างใน เช่น<br>
+            <code style="background:#fff;padding:2px 6px;border-radius:3px;display:inline-block;margin:6px 0;font-size:11px">tiktok.com/@${esc(cls.handle||'ชื่อช่อง')}/video/7412345678901234567</code>
+          </div>
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f5a3a3">
+            <div style="font-weight:800;color:#b02a2a;font-size:13px;margin-bottom:6px">📱 วิธีเอาลิงก์คลิปที่ถูกต้อง</div>
+            <div style="font-size:13px;color:#8a2020;line-height:1.9">
+              1. เปิดแอป TikTok → เข้าช่องตัวเอง<br>
+              2. <b>กดเข้าไปในคลิปที่ต้องการ</b> (ให้คลิปเล่นเต็มจอ) ← ขั้นนี้สำคัญ<br>
+              3. กดปุ่ม <b>แชร์ (ลูกศร)</b> ด้านขวา → <b>คัดลอกลิงก์</b><br>
+              4. เอามา paste ตรงนี้
+            </div>
+          </div>
+          ${cls.handle ? `<div style="margin-top:12px">
+            <a href="https://www.tiktok.com/@${esc(cls.handle)}" target="_blank" class="btn btn-outline" style="font-size:12px">เปิดช่อง @${esc(cls.handle)} ↗</a>
+          </div>` : ''}
+        </div>`;
+      return;
+    }
+    if (cls.kind === 'not-tiktok') {
+      box.innerHTML = `<div style="background:#fde8e8;border:1px solid #f5a3a3;padding:12px;border-radius:8px;font-size:13px;color:#b02a2a">❌ ไม่ใช่ลิงก์ TikTok</div>`;
+      return;
+    }
+
     box.innerHTML = `<div style="padding:16px;text-align:center;color:var(--text-muted)">⏳ กำลังดึงข้อมูลจาก TikTok...</div>`;
     const meta = await fetchTiktokMeta(url.trim());
     if (!meta) {
       box.innerHTML = `
-        <div style="background:#fff3cd;border:1px solid #ffc107;padding:12px;border-radius:8px;font-size:13px;color:#7a5a00;margin-bottom:10px">
-          ⚠️ ดึงอัตโนมัติไม่ได้ (Apps Script ยังไม่ redeploy หรือ TikTok บล็อก) — กรอกเองได้
+        <div style="background:#fff3cd;border:1px solid #ffc107;padding:12px;border-radius:8px;font-size:13px;color:#7a5a00;margin-bottom:10px;line-height:1.7">
+          ⚠️ <b>ดึงอัตโนมัติไม่ได้</b> — สาเหตุที่เป็นไปได้:<br>
+          • คลิปตั้งเป็น <b>ส่วนตัว</b> หรือถูกลบ<br>
+          • Apps Script ยังไม่ redeploy (เช็คที่ ตั้งค่า → 🔬 ตรวจสอบระบบ)<br>
+          • TikTok จำกัดการเรียก (ลองใหม่อีก 1 นาที)<br>
+          <b>กรอกเองได้เลยด้านล่าง ↓</b>
         </div>
         <div style="display:grid;gap:8px">
           <input id="tt-title" placeholder="Caption / หัวข้อคลิป" style="padding:10px 12px;border:1px solid var(--border);border-radius:6px">
@@ -4062,7 +4206,9 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary" onclick="saveSheetUrlMain()">💾 บันทึก URL</button>
           <button class="btn btn-outline" onclick="runBackendCheck()">🔬 ตรวจสอบทันที</button>
+          <button class="btn btn-outline" onclick="runWriteTest()" style="border-color:var(--brand);color:var(--brand)">✍️ ทดสอบเขียนลง Sheet</button>
         </div>
+        <div id="write-test"></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="co-card" style="margin:0">
