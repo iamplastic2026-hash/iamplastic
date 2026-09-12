@@ -4044,11 +4044,32 @@
       (allOk ? `<div style="font-size:12px;color:#0B7A3E;margin-top:8px">✅ พร้อมใช้ — ปุ่ม "เข้าสู่ระบบด้วย LINE" จะโผล่ที่หน้า /login</div>` : ''));
   }
 
+  function fixSheetToken() {
+    S.sheetToken = "iamplastic_secret_2026";
+    saveState();
+    toast("✓ แก้ Token แล้ว — ลองกด ✍️ ทดสอบเขียนลง Sheet");
+    render();
+    setTimeout(runBackendCheck, 200);
+  }
+
   function saveSheetUrlMain() {
     const url = (document.getElementById('sheet-url-main')||{}).value.trim();
-    const token = (document.getElementById('sheet-token-main')||{}).value.trim();
+    let token = (document.getElementById('sheet-token-main')||{}).value.trim();
     if (!url.endsWith('/exec')) {
       if (!confirm("URL ไม่ได้ลงท้ายด้วย /exec — ปกติต้องลงท้ายแบบนั้น\nบันทึกต่อไหม?")) return;
+    }
+    // ดักกรณีเผลอ paste deployment ID ลงช่อง token
+    if (/^AKfyc/i.test(token) || token.length > 60) {
+      if (confirm(
+        "⚠️ Secret Token ที่ใส่ดูเหมือน deployment ID ไม่ใช่รหัสลับ\n\n" +
+        "ค่าที่ถูกต้องคือ: iamplastic_secret_2026\n" +
+        "(ต้องตรงกับ SECRET_TOKEN ใน Code.gs)\n\n" +
+        "กด OK เพื่อใช้ค่าที่ถูกต้องให้อัตโนมัติ"
+      )) {
+        token = "iamplastic_secret_2026";
+        const el = document.getElementById('sheet-token-main');
+        if (el) el.value = token;
+      }
     }
     S.sheetApiUrl = url;
     S.sheetToken = token || "iamplastic_secret_2026";
@@ -4393,11 +4414,19 @@
             placeholder="https://script.google.com/macros/s/AKfycb.../exec"
             style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:monospace">
         </label>
-        <label style="display:block;margin-bottom:12px">
-          <span style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Secret Token (ต้องตรงกับใน Code.gs)</span>
+        <label style="display:block;margin-bottom:6px">
+          <span style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Secret Token — <b>ไม่ใช่</b> deployment ID</span>
           <input id="sheet-token-main" value="${(S.sheetToken||'').replace(/"/g,'&quot;')}"
-            style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            placeholder="iamplastic_secret_2026"
+            style="width:100%;padding:10px 12px;border:1px solid ${/^AKfyc/i.test(S.sheetToken||'')?'#DC2626':'var(--border)'};border-radius:6px;font-size:13px">
         </label>
+        ${/^AKfyc/i.test(S.sheetToken||'') ? `
+          <div style="background:#fde8e8;border:1px solid #f5a3a3;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:12px;color:#b02a2a;line-height:1.7">
+            ❌ <b>Token ผิด</b> — ตอนนี้ใส่ deployment ID ไว้ ทำให้เขียนลง Sheet ไม่ได้<br>
+            ต้องเป็น <code style="background:#fff;padding:1px 6px;border-radius:3px">iamplastic_secret_2026</code>
+            <button class="btn btn-primary" style="display:block;margin-top:8px;font-size:12px" onclick="fixSheetToken()">🔧 แก้ให้อัตโนมัติ</button>
+          </div>`
+          : `<div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">ค่ามาตรฐานคือ <code>iamplastic_secret_2026</code> · ต้องตรงกับ <code>SECRET_TOKEN</code> ใน Code.gs</div>`}
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary" onclick="saveSheetUrlMain()">💾 บันทึก URL</button>
           <button class="btn btn-outline" onclick="runBackendCheck()">🔬 ตรวจสอบทันที</button>
