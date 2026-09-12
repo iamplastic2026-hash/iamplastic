@@ -1037,6 +1037,13 @@
     sheetCustomers: safeGet("iamplastic.sheetCustomers", null),
     // Shop settings
     promptPayId: safeGet("iamplastic.promptPayId", "0812345678"),
+    customQrImage: safeGet("iamplastic.customQrImage", ""),
+    bankName: safeGet("iamplastic.bankName", ""),
+    bankAccountName: safeGet("iamplastic.bankAccountName", ""),
+    bankAccountNo: safeGet("iamplastic.bankAccountNo", ""),
+    bankName2: safeGet("iamplastic.bankName2", ""),
+    bankAccountName2: safeGet("iamplastic.bankAccountName2", ""),
+    bankAccountNo2: safeGet("iamplastic.bankAccountNo2", ""),
     shopName: safeGet("iamplastic.shopName", "THE FOOD BOX ASIA"),
     shopAddress: safeGet("iamplastic.shopAddress", "กรุงเทพฯ"),
     shopPhone: safeGet("iamplastic.shopPhone", "081-234-5678"),
@@ -1145,6 +1152,13 @@
     safeSet("iamplastic.sheetBills", S.sheetBills);
     safeSet("iamplastic.sheetCustomers", S.sheetCustomers);
     safeSet("iamplastic.promptPayId", S.promptPayId);
+    safeSet("iamplastic.customQrImage", S.customQrImage);
+    safeSet("iamplastic.bankName", S.bankName);
+    safeSet("iamplastic.bankAccountName", S.bankAccountName);
+    safeSet("iamplastic.bankAccountNo", S.bankAccountNo);
+    safeSet("iamplastic.bankName2", S.bankName2);
+    safeSet("iamplastic.bankAccountName2", S.bankAccountName2);
+    safeSet("iamplastic.bankAccountNo2", S.bankAccountNo2);
     safeSet("iamplastic.shopName", S.shopName);
     safeSet("iamplastic.shopAddress", S.shopAddress);
     safeSet("iamplastic.shopPhone", S.shopPhone);
@@ -1754,6 +1768,7 @@
     else if (r === "/admin/coupons") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminCoupons(); }
     else if (r === "/admin/settings") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminSettings(); }
     else if (r === "/admin/promos") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminPromos(); }
+    else if (r === "/admin/tiktok") { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminTiktok(); }
     else if (r.startsWith("/admin/label/")) { if (!isAdmin()) { setTimeout(()=>go('/login'),10); content=''; } else content = viewAdminLabel(r.split("/")[3]); }
     else if (r === "/account/profile") content = viewAccountProfile();
     else if (r === "/account/wishlist") content = viewWishlist();
@@ -1809,6 +1824,7 @@
               <a class="ud-item" onclick="hideDropdown();go('/admin/create-bill')">🧾 เปิดบิลใหม่ (Manual)</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/new')">➕ เพิ่มสินค้าใหม่</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/customers')">👥 ลูกค้า</a>
+              <a class="ud-item" onclick="hideDropdown();go('/admin/tiktok')">🎬 ลงคลิป TikTok</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/coupons')">🎁 คูปอง</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/settings')">⚙️ ตั้งค่าร้าน</a>
               <div class="ud-divider"></div>
@@ -1857,6 +1873,7 @@
         <a onclick="go('/admin/bills')">🧾 บิล (${((S.sheetBills||{}).cash||[]).length + ((S.sheetBills||{}).tax||[]).length})</a>
         <a onclick="go('/admin/customers')">👥 ลูกค้า (${(S.sheetCustomers||S.registeredUsers||[]).length})</a>
         <a onclick="go('/admin/coupons')">🎁 คูปอง (${(S.sheetCoupons||[]).length})</a>
+        <a onclick="go('/admin/tiktok')">🎬 ลงคลิป TikTok (${(S.tiktokVideos||[]).length})</a>
         <a onclick="go('/admin/promos')">📢 โปรโมชั่น</a>
         <a onclick="go('/admin/settings')">⚙️ ตั้งค่า</a>
         <a onclick="go('/admin/create-bill')" style="background:rgba(0,0,0,.12);padding:3px 8px;border-radius:4px">➕ เปิดบิลใหม่</a>
@@ -1974,10 +1991,18 @@
 
   // TikTok video grid (embed จาก URL) — คลิปทั้งหมด (ไม่แยก live)
   function renderTiktokGrid() {
-    const vids = (S.tiktokVideos || []).slice().sort((a,b) =>
-      new Date(b.createdAt||0) - new Date(a.createdAt||0)
-    ).slice(0, 8);
-    if (vids.length === 0) return '';
+    // ใช้ลำดับที่ admin จัดไว้ (ย้ายด้วย ↑↓ ในหน้า /admin/tiktok)
+    const vids = (S.tiktokVideos || []).slice(0, 8);
+    if (vids.length === 0) {
+      // admin เห็น hint · ลูกค้าไม่เห็นอะไร
+      return isAdmin() ? `
+        <section style="margin:20px 0;padding:20px;border:2px dashed var(--border);border-radius:12px;text-align:center">
+          <div style="font-size:32px">🎬</div>
+          <div style="font-weight:700;margin:6px 0">ยังไม่มีคลิป TikTok บนหน้าแรก</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">ส่วนนี้เห็นเฉพาะ admin · ลูกค้าจะไม่เห็นอะไร</div>
+          <button class="btn btn-primary" onclick="go('/admin/tiktok')">🎬 ไปลงคลิป →</button>
+        </section>` : '';
+    }
     return `
       <section style="margin:20px 0">
         <div class="section-head">
@@ -2942,7 +2967,11 @@
     saveState();
 
     // Push to Sheet if configured (fire-and-forget)
-    if (S.sheetApiUrl && S.autoSync) pushCustomerToSheet(userData).catch(()=>{});
+    if (S.sheetApiUrl && S.autoSync) {
+      pushCustomerToSheet(userData).then(ok => {
+        if (!ok) console.error("[register] ไม่ได้ขึ้น Sheet — Apps Script อาจยังไม่ redeploy");
+      });
+    }
 
     toast(`✅ สมัครสมาชิกสำเร็จ · ยินดีต้อนรับ คุณ${firstName}!`);
     go('/');
@@ -2950,7 +2979,10 @@
 
   async function pushCustomerToSheet(customer) {
     try {
-      const res = await apiCall("registerCustomer", { data: customer }, true);
+      // ไม่ส่ง password ขึ้น Sheet
+      const { password, ...safe } = customer;
+      const res = await apiCall("registerCustomer", { data: safe }, true);
+      if (!(res && res.ok)) console.error("[pushCustomerToSheet] backend:", res && res.error);
       return !!(res && res.ok);
     } catch (e) {
       console.error("pushCustomerToSheet:", e);
@@ -3076,6 +3108,7 @@
     pullCouponsFromSheet().catch(()=>{});
     pullReviewsFromSheet().catch(()=>{});
     pullPromosFromSheet().then(()=>render()).catch(()=>{});
+    pullSettingsFromSheet().then(()=>render()).catch(()=>{});
     render();
   }
 
@@ -3503,6 +3536,197 @@
   }
 
   // =========================
+  // BACKEND CHECK — บอกว่า Apps Script deploy version ใหม่หรือยัง
+  // =========================
+  function saveSheetUrlMain() {
+    const url = (document.getElementById('sheet-url-main')||{}).value.trim();
+    const token = (document.getElementById('sheet-token-main')||{}).value.trim();
+    if (!url.endsWith('/exec')) {
+      if (!confirm("URL ไม่ได้ลงท้ายด้วย /exec — ปกติต้องลงท้ายแบบนั้น\nบันทึกต่อไหม?")) return;
+    }
+    S.sheetApiUrl = url;
+    S.sheetToken = token || "iamplastic_secret_2026";
+    saveState();
+    toast("✓ บันทึก URL แล้ว · กำลังตรวจสอบ...");
+    render();
+    setTimeout(runBackendCheck, 100);
+  }
+
+  async function runBackendCheck() {
+    const box = document.getElementById('backend-check');
+    if (!box) return;
+    if (!S.sheetApiUrl) {
+      box.innerHTML = `<div style="background:#fde8e8;border:1px solid #f5a3a3;padding:14px;border-radius:10px;margin-bottom:16px">❌ ยังไม่ได้ตั้ง Sheet API URL</div>`;
+      return;
+    }
+    box.innerHTML = `<div style="padding:16px;text-align:center;color:var(--text-muted)">⏳ กำลังตรวจสอบ backend...</div>`;
+
+    // action → ฟีเจอร์ที่ต้องใช้ + เวอร์ชันที่เพิ่มมา
+    const checks = [
+      { action: 'ping',      label: 'เชื่อมต่อพื้นฐาน',        need: 'v1'  },
+      { action: 'list',      label: 'สินค้า (products)',      need: 'v1'  },
+      { action: 'orders',    label: 'คำสั่งซื้อ (orders)',     need: 'v1'  },
+      { action: 'bills',     label: 'บิล (bills_cash/tax)',   need: 'v18' },
+      { action: 'customers', label: 'ลูกค้า (customers)',      need: 'v19' },
+      { action: 'promos',    label: 'Banner + คลิป TikTok',   need: 'v28' },
+      { action: 'settings',  label: 'ตั้งค่าร้าน (เบอร์/บัญชี)', need: 'v29' },
+    ];
+
+    const results = [];
+    for (const c of checks) {
+      try {
+        const res = await apiCall(c.action);
+        results.push({ ...c, ok: !!(res && res.ok), err: res && res.error });
+      } catch (e) {
+        results.push({ ...c, ok: false, err: String(e.message||e) });
+      }
+    }
+
+    const failed = results.filter(r => !r.ok);
+    const allOk = failed.length === 0;
+    // หา version ต่ำสุดที่ fail → บอกว่า deploy ค้างอยู่รุ่นไหน
+    const oldestFail = failed.length ? failed[0].need : null;
+
+    box.innerHTML = `
+      <div style="background:${allOk?'#e6f7ed':'#fff3cd'};border:1px solid ${allOk?'#8ed9ae':'#ffc107'};padding:14px 16px;border-radius:10px;margin-bottom:16px">
+        <div style="font-weight:800;font-size:15px;margin-bottom:10px;color:${allOk?'#0B7A3E':'#7a5a00'}">
+          ${allOk ? '✅ Backend เป็นเวอร์ชันล่าสุด — ทุกฟีเจอร์พร้อมใช้' : `⚠️ Backend เป็นเวอร์ชันเก่า — มี ${failed.length} ฟีเจอร์ใช้ไม่ได้`}
+        </div>
+        <table style="width:100%;font-size:13px;border-collapse:collapse">
+          ${results.map(r => `<tr style="border-bottom:1px solid rgba(0,0,0,.06)">
+            <td style="padding:6px 0;width:28px">${r.ok?'✅':'❌'}</td>
+            <td style="padding:6px 0">${r.label}</td>
+            <td style="padding:6px 0;text-align:right;font-size:11px;color:var(--text-muted)">${r.ok?'ใช้ได้':'ต้องการ '+r.need}</td>
+          </tr>`).join('')}
+        </table>
+        ${allOk ? '' : `
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,0,0,.1);font-size:13px;color:#7a5a00;line-height:1.7">
+            <b>วิธีแก้ — Deploy version ใหม่:</b><br>
+            1. Google Sheet → <b>Extensions → Apps Script</b><br>
+            2. paste <b>Code.gs</b> ล่าสุด → <b>Ctrl+S</b><br>
+            3. <b>Deploy</b> ▾ → <b>Manage deployments</b> (ไม่ใช่ New deployment)<br>
+            4. คลิก <b>✏️ ดินสอ</b> → Version → <b>"New version"</b><br>
+            5. กด <b>Deploy</b> → รอ 10 วิ<br>
+            6. กลับมากด <b>🔬 ตรวจสอบระบบ</b> อีกครั้ง — ต้องขึ้น ✅ ครบ
+          </div>`}
+      </div>`;
+  }
+
+  // =========================
+  // TIKTOK admin — หน้าลงคลิปโดยเฉพาะ
+  // =========================
+  function viewAdminTiktok() {
+    if (S.sheetApiUrl && (Date.now()-(S.promosLastSync||0))>10000) {
+      pullPromosFromSheet().then(()=>{ S.promosLastSync=Date.now(); render(); });
+    }
+    const vids = S.tiktokVideos || [];
+    return `
+      ${adminPageHeader('ลงคลิป TikTok', '🎬', `
+        ${S.tiktokUrl?`<a class="btn btn-outline" href="${esc(S.tiktokUrl)}" target="_blank">เปิดช่อง TikTok ↗</a>`:''}
+        <button class="btn btn-outline" onclick="pullPromosFromSheet().then(()=>render())">🔄 Refresh</button>
+      `)}
+
+      <div class="co-card" style="margin:0 0 16px;border:2px solid var(--brand)">
+        <h3 style="margin:0 0 4px">➕ ลงคลิปใหม่</h3>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+          paste URL คลิปแล้วกด <b>ดึงข้อมูล</b> → ระบบจะดึงรูป cover + caption ให้อัตโนมัติ
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <input id="tt-url" placeholder="https://www.tiktok.com/@ชื่อช่อง/video/123456..."
+            style="flex:1;min-width:260px;padding:12px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px"
+            onkeydown="if(event.key==='Enter')fetchTiktokIntoForm()">
+          <button class="btn btn-primary" onclick="fetchTiktokIntoForm()">📥 ดึงข้อมูล</button>
+        </div>
+        <div id="tt-form-result"></div>
+      </div>
+
+      <div class="section-head" style="margin:0 0 12px">
+        <h2 style="font-size:16px">คลิปทั้งหมด (${vids.length})</h2>
+        <span style="font-size:12px;color:var(--text-muted)">แสดงบนหน้าแรก 8 คลิปล่าสุด</span>
+      </div>
+
+      ${vids.length===0 ? `<div class="cart-empty"><div class="icon">🎬</div>
+        <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px">ยังไม่มีคลิป</div>
+        <div style="font-size:13px">paste URL ด้านบนแล้วกด "ดึงข้อมูล" เพื่อลงคลิปแรก</div></div>` : `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px">
+        ${vids.map((v,i) => `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)">
+            <div style="aspect-ratio:9/16;background:#000;position:relative">
+              ${v.thumbnail
+                ? `<img src="${esc(v.thumbnail)}" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'">`
+                : `<div style="width:100%;height:100%;display:grid;place-items:center;color:#fff;font-size:32px">🎵</div>`}
+              <div style="position:absolute;top:6px;left:6px;background:rgba(0,0,0,.7);color:#fff;font-size:10px;padding:2px 7px;border-radius:4px">#${i+1}</div>
+            </div>
+            <div style="padding:10px">
+              <div style="font-size:12px;font-weight:600;line-height:1.35;height:32px;overflow:hidden;margin-bottom:8px">${esc((v.title||'ไม่มี caption').slice(0,60))}</div>
+              <div style="display:flex;gap:4px">
+                <a class="admin-btn" href="${esc(v.url)}" target="_blank" title="เปิดใน TikTok">↗</a>
+                <button class="admin-btn" onclick="refetchTiktok(${i})" title="ดึงรูป+caption ใหม่">🔄</button>
+                <button class="admin-btn" onclick="moveTiktok(${i},-1)" title="เลื่อนขึ้น" ${i===0?'disabled style="opacity:.3"':''}>↑</button>
+                <button class="admin-btn" onclick="moveTiktok(${i},1)" title="เลื่อนลง" ${i===vids.length-1?'disabled style="opacity:.3"':''}>↓</button>
+                <button class="admin-btn" onclick="deleteTiktok(${i})" title="ลบ">🗑️</button>
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>`}
+    `;
+  }
+
+  async function fetchTiktokIntoForm() {
+    const url = (document.getElementById('tt-url')||{}).value || '';
+    if (!url.trim()) { toast("paste URL คลิปก่อน"); return; }
+    const box = document.getElementById('tt-form-result');
+    box.innerHTML = `<div style="padding:16px;text-align:center;color:var(--text-muted)">⏳ กำลังดึงข้อมูลจาก TikTok...</div>`;
+    const meta = await fetchTiktokMeta(url.trim());
+    if (!meta) {
+      box.innerHTML = `
+        <div style="background:#fff3cd;border:1px solid #ffc107;padding:12px;border-radius:8px;font-size:13px;color:#7a5a00;margin-bottom:10px">
+          ⚠️ ดึงอัตโนมัติไม่ได้ (Apps Script ยังไม่ redeploy หรือ TikTok บล็อก) — กรอกเองได้
+        </div>
+        <div style="display:grid;gap:8px">
+          <input id="tt-title" placeholder="Caption / หัวข้อคลิป" style="padding:10px 12px;border:1px solid var(--border);border-radius:6px">
+          <input id="tt-thumb" placeholder="URL รูป cover" style="padding:10px 12px;border:1px solid var(--border);border-radius:6px">
+          <button class="btn btn-primary" onclick="confirmAddTiktok()">✓ ลงคลิป</button>
+        </div>`;
+      return;
+    }
+    box.innerHTML = `
+      <div style="display:flex;gap:14px;align-items:flex-start;background:var(--surface-warm);padding:12px;border-radius:10px">
+        <img src="${esc(meta.thumbnail)}" style="width:80px;aspect-ratio:9/16;object-fit:cover;border-radius:8px;background:#000" onerror="this.style.display='none'">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;color:var(--success);font-weight:700;margin-bottom:6px">✓ ดึงข้อมูลสำเร็จ</div>
+          <input id="tt-title" value="${esc(meta.title||'').replace(/"/g,'&quot;')}" placeholder="Caption"
+            style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:6px">
+          <input id="tt-thumb" value="${esc(meta.thumbnail||'')}" style="display:none">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${esc(meta.author||'')}</div>
+          <button class="btn btn-primary" onclick="confirmAddTiktok()">✓ ลงคลิปนี้</button>
+        </div>
+      </div>`;
+  }
+
+  function confirmAddTiktok() {
+    const url = (document.getElementById('tt-url')||{}).value.trim();
+    const title = (document.getElementById('tt-title')||{}).value || '';
+    const thumbnail = (document.getElementById('tt-thumb')||{}).value || '';
+    if (!url) return;
+    S.tiktokVideos = S.tiktokVideos || [];
+    S.tiktokVideos.unshift({ url, title, thumbnail, views:'', createdAt: new Date().toISOString() });
+    saveState(); savePromosToSheet();
+    document.getElementById('tt-url').value = '';
+    toast("✓ ลงคลิปแล้ว · โผล่หน้าแรกทันที");
+    render();
+  }
+
+  function moveTiktok(i, dir) {
+    const list = S.tiktokVideos || [];
+    const j = i + dir;
+    if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    saveState(); savePromosToSheet(); render();
+  }
+
+  // =========================
   // SETTINGS admin (PromptPay, Cloudinary, SlipOK, GA, shop info)
   // =========================
   function viewAdminSettings() {
@@ -3513,7 +3737,33 @@
           style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px">
       </label>`;
     return `
-      ${adminPageHeader('ตั้งค่าร้าน','⚙️','<button class="btn btn-primary" onclick="saveShopSettings()">💾 บันทึก</button>')}
+      ${adminPageHeader('ตั้งค่าร้าน','⚙️',`
+        <button class="btn btn-outline" onclick="runBackendCheck()">🔬 ตรวจสอบระบบ</button>
+        <button class="btn btn-primary" onclick="saveShopSettings()">💾 บันทึก</button>
+      `)}
+      <div id="backend-check"></div>
+
+      <div class="co-card" style="margin:0 0 16px;border:2px solid var(--brand)">
+        <h3 style="margin:0 0 4px">🔗 เชื่อมต่อ Google Sheet</h3>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+          URL นี้คือ <b>Web app URL</b> ของ Apps Script · ถ้าเคยกด "New deployment" จะได้ URL ใหม่ ต้องเอามาใส่ตรงนี้
+        </div>
+        <label style="display:block;margin-bottom:10px">
+          <span style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Web app URL (ลงท้าย /exec)</span>
+          <input id="sheet-url-main" value="${(S.sheetApiUrl||'').replace(/"/g,'&quot;')}"
+            placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+            style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:monospace">
+        </label>
+        <label style="display:block;margin-bottom:12px">
+          <span style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Secret Token (ต้องตรงกับใน Code.gs)</span>
+          <input id="sheet-token-main" value="${(S.sheetToken||'').replace(/"/g,'&quot;')}"
+            style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+        </label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="saveSheetUrlMain()">💾 บันทึก URL</button>
+          <button class="btn btn-outline" onclick="runBackendCheck()">🔬 ตรวจสอบทันที</button>
+        </div>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="co-card" style="margin:0">
           <h3 style="margin:0 0 12px">🏪 ข้อมูลร้าน</h3>
@@ -3530,13 +3780,49 @@
           ${inp('youtubeUrl','YouTube URL',S.youtubeUrl,'https://youtube.com/@channel')}
           ${inp('contactEmail','อีเมลติดต่อ',S.contactEmail,'shop@example.com')}
         </div>
-        <div class="co-card" style="margin:0">
-          <h3 style="margin:0 0 12px">💰 PromptPay</h3>
-          ${inp('promptPayId','เลข PromptPay (เบอร์/เลขบัตร ปชช.)',S.promptPayId,'0812345678')}
-          <div style="font-size:11px;color:var(--text-muted);margin-top:-8px;margin-bottom:12px">💡 QR จะ gen อัตโนมัติจาก promptpay.io</div>
-          <div style="text-align:center;padding:12px">
-            <img src="https://promptpay.io/${(S.promptPayId||'0812345678').replace(/[-\s]/g,'')}/100.png" style="width:150px" onerror="this.style.display='none'">
-            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Preview (100 บาท)</div>
+        <div class="co-card" style="margin:0;grid-column:1 / -1">
+          <h3 style="margin:0 0 12px">💰 การรับชำระเงิน</h3>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+            <div>
+              <div style="font-size:13px;font-weight:800;color:var(--brand);margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--brand-soft)">📱 QR PromptPay</div>
+              ${inp('promptPayId','เลข PromptPay (เบอร์/เลขผู้เสียภาษี)',S.promptPayId,'0812345678')}
+              <div style="font-size:11px;color:var(--text-muted);margin-top:-8px;margin-bottom:14px">💡 QR จะ gen อัตโนมัติตามยอดเงินแต่ละบิล</div>
+
+              <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px">หรืออัพ QR ของตัวเอง (แทน auto-gen)</div>
+              <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+                <input id="set-customQrImage" value="${(S.customQrImage||'').replace(/"/g,'&quot;')}" placeholder="URL รูป QR หรือกดอัพจากเครื่อง"
+                  style="flex:1;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+                <input type="file" id="qr-file" accept="image/*" style="display:none" onchange="uploadQrFile(this)">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('qr-file').click()">☁️ อัพ</button>
+                ${S.customQrImage?`<button type="button" class="btn btn-ghost" onclick="clearCustomQr()" style="color:#DC2626">✕</button>`:''}
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">
+                ⚠️ ถ้าอัพ QR เอง → ระบบจะใช้ QR นั้นทุกบิล (ลูกค้าต้องกรอกยอดเอง)
+              </div>
+
+              <div style="text-align:center;padding:12px;background:var(--surface-warm);border-radius:10px">
+                <div id="qr-preview">
+                  ${S.customQrImage
+                    ? `<img src="${esc(S.customQrImage)}" style="width:150px;border-radius:8px" onerror="this.style.display='none'">
+                       <div style="font-size:11px;color:var(--brand);margin-top:6px;font-weight:700">✓ ใช้ QR ที่อัพเอง</div>`
+                    : `<img src="https://promptpay.io/${(S.promptPayId||'0812345678').replace(/[-\s]/g,'')}/100.png" style="width:150px;background:#fff;padding:8px;border-radius:8px" onerror="this.style.display='none'">
+                       <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Preview · PromptPay (ยอด ฿100)</div>`}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div style="font-size:13px;font-weight:800;color:var(--brand);margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--brand-soft)">🏦 บัญชีธนาคาร (โอนเงิน)</div>
+              ${inp('bankName','ธนาคาร',S.bankName,'กสิกรไทย (KBank)')}
+              ${inp('bankAccountName','ชื่อบัญชี',S.bankAccountName,'บจก. เดอะฟู้ดบ็อกซ์ เอเชีย')}
+              ${inp('bankAccountNo','เลขที่บัญชี',S.bankAccountNo,'123-4-56789-0')}
+
+              <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin:16px 0 8px;padding-top:12px;border-top:1px dashed var(--border)">บัญชีสำรอง (optional)</div>
+              ${inp('bankName2','ธนาคาร 2',S.bankName2,'ไทยพาณิชย์ (SCB)')}
+              ${inp('bankAccountName2','ชื่อบัญชี 2',S.bankAccountName2,'')}
+              ${inp('bankAccountNo2','เลขที่บัญชี 2',S.bankAccountNo2,'')}
+            </div>
           </div>
         </div>
         <div class="co-card" style="margin:0">
@@ -3567,12 +3853,90 @@
       </div>
     `;
   }
+  // QR สำหรับจ่ายเงิน — ใช้ QR ที่ admin อัพเอง ถ้ามี · ไม่งั้น gen จาก PromptPay ตามยอด
+  function renderPaymentQr(amount) {
+    if (S.customQrImage) {
+      return `
+        <div style="background:#fff;padding:12px;border-radius:12px;display:inline-block;box-shadow:var(--shadow)">
+          <img src="${esc(S.customQrImage)}" alt="QR ชำระเงิน" style="width:220px;display:block;border-radius:6px"
+            onerror="this.parentNode.innerHTML='<div style=&quot;width:220px;height:220px;display:grid;place-items:center;color:#999;font-size:12px&quot;>โหลด QR ไม่ได้</div>'">
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:8px">⚠️ กรอกยอด <b style="color:var(--brand)">${money(amount)}</b> เองในแอปธนาคาร</div>
+      `;
+    }
+    const ppid = (S.promptPayId||'').replace(/[-\s]/g,'');
+    if (!ppid) return '';
+    return `
+      <div style="background:#fff;padding:12px;border-radius:12px;display:inline-block;box-shadow:var(--shadow)">
+        <img src="https://promptpay.io/${ppid}/${amount}.png"
+          alt="QR PromptPay ${money(amount)}" style="width:220px;height:220px;display:block"
+          onerror="this.parentNode.innerHTML='<div style=&quot;width:220px;height:220px;display:grid;place-items:center;color:#999;font-size:12px&quot;>QR error — โอนตามเลขบัญชีด้านล่าง</div>'">
+      </div>
+      <div class="qr-info" style="margin-top:8px">พร้อมเพย์ <b style="color:var(--text)">${esc(S.promptPayId)}</b> · <span style="color:var(--success)">ยอดถูกใส่ให้แล้ว ✓</span></div>
+    `;
+  }
+
+  // การ์ดเลขบัญชีธนาคาร + ปุ่มคัดลอก
+  function renderBankAccounts() {
+    const accs = [
+      { bank: S.bankName, name: S.bankAccountName, no: S.bankAccountNo },
+      { bank: S.bankName2, name: S.bankAccountName2, no: S.bankAccountNo2 },
+    ].filter(a => a.no);
+    if (accs.length === 0) return '';
+    return `
+      <div style="margin-top:16px;text-align:left">
+        <div style="font-size:12px;font-weight:800;color:var(--text-muted);letter-spacing:.06em;margin-bottom:8px;text-align:center">— หรือโอนเข้าบัญชี —</div>
+        ${accs.map(a => `
+          <div style="background:var(--surface-warm);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px">
+            <div style="font-size:12px;color:var(--text-muted);font-weight:700">🏦 ${esc(a.bank||'ธนาคาร')}</div>
+            <div style="font-size:13px;color:var(--text);margin-top:4px">${esc(a.name||'-')}</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+              <span class="mono" style="font-size:18px;font-weight:800;color:var(--brand);letter-spacing:.02em">${esc(a.no)}</span>
+              <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="copyText('${esc(a.no).replace(/[-\s]/g,'')}','เลขบัญชี')">📋 คัดลอก</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  async function uploadQrFile(inp) {
+    const f = inp.files && inp.files[0]; if (!f) return;
+    toast("⏳ อัพ QR ขึ้น Cloudinary...");
+    const url = await uploadToCloudinary(f);
+    if (url) {
+      document.getElementById('set-customQrImage').value = url;
+      S.customQrImage = url;
+      saveState(); pushSettingsToSheet();
+      toast("✓ อัพ QR สำเร็จ · บันทึกแล้ว");
+      render();
+    }
+  }
+  function clearCustomQr() {
+    if (!confirm("ลบ QR ที่อัพไว้? (จะกลับไปใช้ QR auto-gen จาก PromptPay)")) return;
+    S.customQrImage = '';
+    saveState(); pushSettingsToSheet();
+    toast("✓ กลับไปใช้ QR auto-gen"); render();
+  }
+  function copyText(txt, label) {
+    const t = String(txt||'');
+    if (navigator.clipboard) navigator.clipboard.writeText(t).then(()=>toast(`📋 คัดลอก${label||''} ${t}`)).catch(()=>prompt('คัดลอก:', t));
+    else prompt('คัดลอก:', t);
+  }
+
   function saveShopSettings() {
     const g = id => (document.getElementById('set-'+id)||{}).value.trim();
     S.shopName = g('shopName');
     S.shopPhone = g('shopPhone');
     S.shopAddress = g('shopAddress');
     S.promptPayId = g('promptPayId');
+    S.customQrImage = g('customQrImage');
+    S.bankName = g('bankName');
+    S.bankAccountName = g('bankAccountName');
+    S.bankAccountNo = g('bankAccountNo');
+    S.bankName2 = g('bankName2');
+    S.bankAccountName2 = g('bankAccountName2');
+    S.bankAccountNo2 = g('bankAccountNo2');
     S.slipokApiKey = g('slipokApiKey');
     S.slipokBranchId = g('slipokBranchId');
     S.cloudinaryCloud = g('cloudinaryCloud');
@@ -3585,7 +3949,8 @@
     S.youtubeUrl = g('youtubeUrl');
     S.contactEmail = g('contactEmail');
     saveState();
-    toast("✓ บันทึกการตั้งค่าแล้ว");
+    pushSettingsToSheet(); // sync ขึ้น Sheet → ทุก URL / browser เห็นเหมือนกัน
+    toast("✓ บันทึกแล้ว · sync ขึ้น Sheet");
     render();
   }
 
@@ -3684,6 +4049,32 @@
   async function pullReviewsFromSheet() {
     if (!S.sheetApiUrl) return;
     try { const res = await apiCall("listReviews"); if (res.ok) { S.sheetReviews = res.reviews||[]; saveState(); } } catch(e){}
+  }
+
+  // Shop settings sync กับ Sheet (แก้ปัญหา Vercel preview URL localStorage หาย)
+  const SETTING_KEYS = ['shopName','shopPhone','shopAddress','promptPayId','customQrImage',
+    'bankName','bankAccountName','bankAccountNo',
+    'bankName2','bankAccountName2','bankAccountNo2',
+    'slipokApiKey','slipokBranchId','cloudinaryCloud','cloudinaryPreset',
+    'gaTagId','liffId','lineOA','messengerUrl','tiktokUrl','youtubeUrl','contactEmail'];
+  async function pullSettingsFromSheet() {
+    if (!S.sheetApiUrl) return;
+    try {
+      const res = await apiCall("settings");
+      if (res && res.ok && res.settings) {
+        SETTING_KEYS.forEach(k => {
+          if (res.settings[k] !== undefined && res.settings[k] !== '') S[k] = res.settings[k];
+        });
+        saveState();
+      }
+    } catch(e){ console.error("[settings pull]", e); }
+  }
+  async function pushSettingsToSheet() {
+    if (!S.sheetApiUrl) return;
+    const settings = {};
+    SETTING_KEYS.forEach(k => { settings[k] = S[k] || ''; });
+    try { await apiCall("saveSettings", { settings }, true); }
+    catch(e){ console.error("[settings push]", e); }
   }
 
   // Promos (banners + tiktok) sync กับ Sheet
@@ -5053,24 +5444,22 @@
       </div>
 
       <div class="ok-cols">
-        ${o.status === 'pending_payment' && o.payment === 'qr' ? `
+        ${o.status === 'pending_payment' && (o.payment === 'qr' || o.payment === 'bank') ? `
         <div class="qr-card">
-          <h3>📱 สแกน QR เพื่อจ่าย</h3>
-          <div class="sub">พร้อมเพย์ · ผ่าน mobile banking ทุกธนาคาร</div>
-          <div style="background:#fff;padding:12px;border-radius:12px;display:inline-block;margin:12px auto;box-shadow:var(--shadow)">
-            <img src="https://promptpay.io/${(S.promptPayId||'0812345678').replace(/[-\s]/g,'')}/${o.total}.png"
-              alt="QR PromptPay ${money(o.total)}" style="width:220px;height:220px;display:block"
-              onerror="this.parentNode.innerHTML='<div style=&quot;width:220px;height:220px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px&quot;>QR error — โอนไปที่ '+(S.promptPayId||'-')+'</div>'">
-          </div>
-          <div class="qr-amount">${money(o.total)}</div>
-          <div class="qr-info">พร้อมเพย์ <b style="color:var(--text)">${S.promptPayId||'-'}</b></div>
-          <div class="qr-info" style="font-size:11px;color:var(--text-muted)">${S.shopName||'iamplastic'}</div>
+          <h3>${o.payment === 'qr' ? '📱 สแกน QR เพื่อจ่าย' : '🏦 โอนเงินเข้าบัญชี'}</h3>
+          <div class="sub">ยอดที่ต้องชำระ · ${S.shopName||'THE FOOD BOX ASIA'}</div>
+          <div class="qr-amount" style="margin:8px 0 4px">${money(o.total)}</div>
+          <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px;margin-bottom:12px" onclick="copyText('${o.total}','ยอด')">📋 คัดลอกยอด</button>
+
+          ${renderPaymentQr(o.total)}
+          ${renderBankAccounts()}
+
           <button class="btn btn-primary btn-block btn-big" style="margin-top:16px" onclick="go('/upload-slip/${o.po}')">📸 แจ้งโอนแล้ว (แนบสลิป) →</button>
         </div>
         ` : o.status === 'pending_payment' ? `
         <div class="qr-card" style="border-style:solid;border-color:var(--border)">
           <h3 style="color:var(--text)">💳 ${paymentLabel}</h3>
-          <div class="sub" style="margin-bottom:0">${o.payment === 'cod' ? 'จ่ายเงินสด ' + money(o.total) + ' ตอนรับสินค้า' : o.payment === 'bank' ? 'โอนเข้าบัญชี KBank 013-xxxxxx7 ยอด ' + money(o.total) : 'ระบบจะพาไปยังหน้าชำระเงินของธนาคาร'}</div>
+          <div class="sub" style="margin-bottom:0">${o.payment === 'cod' ? 'จ่ายเงินสด ' + money(o.total) + ' ตอนรับสินค้า' : 'ระบบจะพาไปยังหน้าชำระเงินของธนาคาร'}</div>
           <div class="qr-amount" style="color:var(--brand)">${money(o.total)}</div>
         </div>
         ` : `
