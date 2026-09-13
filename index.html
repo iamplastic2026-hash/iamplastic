@@ -722,12 +722,26 @@
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 10px; min-width: 240px;
     box-shadow: 0 8px 24px rgba(0,0,0,.15);
-    display: none; z-index: 100; overflow: hidden;
+    display: none; z-index: 100;
+    /* เมนูแอดมินยาวกว่าจอ — เดิมใส่ overflow:hidden ทำให้เลื่อนไม่ได้ รายการท้ายๆ เลยหายไปเลย */
+    max-height: calc(100vh - 110px);
+    overflow-y: auto;
+    overscroll-behavior: contain;   /* เลื่อนสุดแล้วไม่ไปลากหน้าเว็บข้างหลังต่อ */
+    scrollbar-width: thin;
+    scrollbar-color: var(--brand) transparent;
+  }
+  .user-dropdown::-webkit-scrollbar { width: 9px; }
+  .user-dropdown::-webkit-scrollbar-track { background: transparent; }
+  .user-dropdown::-webkit-scrollbar-thumb {
+    background: var(--brand); border-radius: 99px;
+    border: 2px solid var(--surface);
   }
   .user-dropdown.open { display: block; }
   .ud-header {
     padding: 14px 16px; background: var(--surface-warm);
     border-bottom: 1px solid var(--border);
+    /* ค้างไว้ข้างบน จะได้รู้ตลอดว่าล็อกอินเป็นใคร ตอนเลื่อนดูเมนูยาวๆ */
+    position: sticky; top: 0; z-index: 1;
   }
   .ud-name { font-weight: 700; font-size: 14px; color: var(--text); }
   .ud-role { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
@@ -738,6 +752,10 @@
   }
   .ud-item:hover { background: var(--brand-soft); color: var(--brand-dark); }
   .ud-divider { height: 1px; background: var(--border); margin: 4px 0; }
+
+  @media (max-width: 520px) {
+    .user-dropdown { max-height: calc(100vh - 90px); min-width: 220px; }
+  }
 
   /* Admin ribbon */
   #admin-ribbon {
@@ -3038,7 +3056,7 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 61;
+  const APP_VERSION = 62;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
   const NEED_BACKEND = 45;
