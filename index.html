@@ -1119,7 +1119,8 @@
     coTaxId:   safeGet("iamplastic.coTaxId", "0105563154482"),
     coPhone:   safeGet("iamplastic.coPhone", ""),
     vatRate:   safeGet("iamplastic.vatRate", 7),
-    vatMode:   safeGet("iamplastic.vatMode", "included"),   // included = ราคารวม VAT แล้ว
+    vatMode:   safeGet("iamplastic.vatMode", "included"),
+    remoteFee: safeGet("iamplastic.remoteFee", 0),   // ค่าส่งเพิ่มพื้นที่ห่างไกล · 0 = ยังไม่เปิดใช้   // included = ราคารวม VAT แล้ว
     billFooter: safeGet("iamplastic.billFooter", "ถูกกว่า เร็วกว่า!!!!"),
     billFooterLine: safeGet("iamplastic.billFooterLine", "add LINE : @thefoodbox"),
     billFooterSub: safeGet("iamplastic.billFooterSub", "สั่งตรงกับร้าน ลด 3% ไม่มีขั้นต่ำ"),
@@ -1258,7 +1259,7 @@
     "bankName2", "bankAccountName2", "bankAccountNo2",
     "shopName", "shopAddress", "shopPhone",
     "coName", "coBranch", "coAddress", "coTaxId", "coPhone", "shipRates",
-    "vatRate", "vatMode",
+    "vatRate", "vatMode", "remoteFee",
     "billFooter", "billFooterLine", "billFooterSub", "billFooterQr",
     "slipokApiKey", "slipokBranchId",
     "cloudinaryCloud", "cloudinaryPreset",
@@ -1994,11 +1995,126 @@
   }
 
   // จังหวัดปลายทางที่ลูกค้าเลือกอยู่ตอนนี้
+  // ============================================================
+  // พื้นที่ห่างไกล — คิดค่าส่งเพิ่ม
+  //
+  // จับคู่ที่ระดับ "อำเภอ" เพราะแม่นที่สุด
+  // ('*' = ทั้งจังหวัด)
+  //
+  // ⚠️ 2 พื้นที่ที่ระบบตรวจให้อัตโนมัติไม่ได้ เพราะใช้อำเภอ/ตำบลร่วมกับพื้นที่บนฝั่ง
+  //    ถ้าเหมาว่าห่างไกลจะไปเก็บเงินเพิ่มกับลูกค้าบนฝั่งด้วย
+  //      • เกาะพีพี  → อยู่ใน ต.อ่าวนาง อ.เมืองกระบี่ (รหัส 81000 = ตัวเมืองทั้งอำเภอ)
+  //      • เกาะล้าน  → อยู่ใน ต.นาเกลือ อ.บางละมุง (รหัส 20150 = พัทยาทั้งอำเภอ)
+  //    สองอันนี้ต้องให้แอดมินดูเองตอนแพ็กของ
+  // ============================================================
+  const REMOTE_AREAS = {
+    // ภาคเหนือ — ดอย / ภูเขาสูง
+    'แม่ฮ่องสอน': '*',
+    'เชียงใหม่': ['อมก๋อย','เวียงแหง','กัลยาณิวัฒนา','แม่แจ่ม','ฮอด','ดอยเต่า','สะเมิง'],
+    'เชียงราย': ['เวียงแก่น','แม่สรวย','เวียงป่าเป้า'],
+    'น่าน': ['บ่อเกลือ','เฉลิมพระเกียรติ','นาหมื่น'],
+    'พะเยา': ['เชียงม่วน'],
+    'ลำพูน': ['ทุ่งหัวช้าง'],
+    // ชายแดนใต้
+    'ยะลา': ['เบตง','บันนังสตา','ธารโต','ยะหา','กาบัง'],
+    'นราธิวาส': ['สุไหงโก-ลก','สุไหงปาดี','ตากใบ','แว้ง','สุคิริน','รือเสาะ','ศรีสาคร','จะแนะ','ระแงะ'],
+    'ปัตตานี': ['สายบุรี','ไม้แก่น','กะพ้อ','ยะหริ่ง'],
+    'สงขลา': ['นาทวี','จะนะ','เทพา','สะบ้าย้อย'],
+    // เกาะ — ต้องข้ามเรือ
+    'สุราษฎร์ธานี': ['เกาะสมุย','เกาะพะงัน'],
+    'ตราด': ['เกาะช้าง','เกาะกูด'],
+    'พังงา': ['เกาะยาว'],
+    'กระบี่': ['เกาะลันตา'],
+    'ชลบุรี': ['เกาะสีชัง'],
+    // ตะวันตก / กลาง — ป่า / ชายแดน
+    'ตาก': ['อุ้มผาง','ท่าสองยาง','แม่ระมาด'],
+    'กาญจนบุรี': ['สังขละบุรี','ทองผาภูมิ'],
+    'เพชรบูรณ์': ['น้ำหนาว'],
+  };
+
+  // พื้นที่ที่ต้องเช็คเอง — ระบบเตือนแอดมิน แต่ไม่คิดเงินเพิ่มอัตโนมัติ
+  const REMOTE_MANUAL = [
+    { prov: 'กระบี่', dist: 'เมืองกระบี่', subdist: 'อ่าวนาง', note: 'ถ้าส่งเกาะพีพี ต้องคิดเพิ่มเอง' },
+    { prov: 'ชลบุรี', dist: 'บางละมุง', subdist: 'นาเกลือ', note: 'ถ้าส่งเกาะล้าน ต้องคิดเพิ่มเอง' },
+  ];
+
+  const norm = v => String(v || '').replace(/^(จังหวัด|จ\.|อำเภอ|อ\.|เขต|ตำบล|ต\.|แขวง)\s*/, '').replace(/\s+/g, '').trim();
+
+  // คืน null ถ้าไม่ใช่พื้นที่ห่างไกล · คืนรายละเอียดถ้าใช่
+  function remoteAreaOf(prov, dist, text) {
+    const p = norm(prov) || provinceFromText(text);
+    if (!p) return null;
+    const rule = REMOTE_AREAS[p];
+    if (!rule) return null;
+    if (rule === '*') return { prov: p, dist: '', whole: true };
+
+    let d = norm(dist);
+    // ที่อยู่เก่าไม่มีช่องอำเภอแยก → แกะจากข้อความ
+    if (!d && text) {
+      const hit = rule.find(x => String(text).indexOf(x) >= 0);
+      if (hit) d = hit;
+    }
+    if (!d) return null;
+    return rule.indexOf(d) >= 0 ? { prov: p, dist: d, whole: false } : null;
+  }
+
+  function currentRemoteArea() {
+    const a = currentShipAddress();
+    const el = document.getElementById('co-prov');
+    const prov = (el && el.value.trim()) || (a && a.prov) || '';
+    const dEl = document.getElementById('co-dist');
+    const dist = (dEl && dEl.value.trim()) || (a && a.dist) || '';
+    const text = (a && (a.fullAddress || a.addr)) || (S.user && S.user.address) || '';
+    return remoteAreaOf(prov, dist, text);
+  }
+
+  // พื้นที่ที่แอดมินต้องเช็คเอง
+  function currentManualCheck() {
+    const a = currentShipAddress();
+    if (!a) return null;
+    const p = norm(a.prov) || provinceFromText(a.fullAddress || '');
+    const d = norm(a.dist), sd = norm(a.subdist);
+    return REMOTE_MANUAL.find(m => norm(m.prov) === p && norm(m.dist) === d && (!sd || norm(m.subdist) === sd)) || null;
+  }
+
+  function remoteFee() {
+    if (S.coShipping === 'pickup') return 0;
+    return currentRemoteArea() ? (Number(S.remoteFee) || 0) : 0;
+  }
+
+  // หาชื่อจังหวัดจากข้อความที่อยู่ — กันเคสที่ช่อง prov ว่างแต่ fullAddress มี "จ.ยะลา"
+  // เทียบจากรายชื่อจังหวัดจริง เรียงชื่อยาวก่อนกันไปชนกับชื่อที่ซ้อนกัน
+  let _provSorted = null;
+  function provinceFromText(text) {
+    const str = String(text || '');
+    if (!str) return '';
+    if (!_provSorted) _provSorted = thaiProvinces().slice().sort((a, b) => b.length - a.length);
+    return _provSorted.find(p => str.indexOf(p) >= 0) || '';
+  }
+
+  // ที่อยู่ที่ "กำลังจะส่งจริง" — ต้องเป็นอันที่ลูกค้าเลือก ไม่ใช่อันที่ตั้ง Default ไว้
+  // เดิมดู isDefault อย่างเดียว เลือกที่อยู่อื่นแล้วค่าส่งไม่เปลี่ยนตาม
+  function currentShipAddress() {
+    const list = (typeof getUserAddresses === 'function' ? getUserAddresses() : null)
+      || (S.user && S.user.addresses) || [];
+    if (!list.length) return null;
+    return (S.coAddressId && list.find(a => a.id === S.coAddressId))
+      || list.find(a => a.isDefault)
+      || list[0];
+  }
+
   function currentShipProvince() {
     const el = document.getElementById('co-prov');
     if (el && el.value.trim()) return el.value.trim();
-    const addr = (S.user && (S.user.addresses || []).find(a => a.isDefault)) || null;
-    return (addr && addr.prov) || (S.user && S.user.prov) || '';
+    const a = currentShipAddress();
+    if (a) {
+      if (a.prov) return a.prov;
+      // ที่อยู่เก่าที่ไม่มีช่อง prov แยกไว้ → แกะจากข้อความ
+      const found = provinceFromText(a.fullAddress || a.addr || '');
+      if (found) return found;
+    }
+    if (S.user && S.user.prov) return S.user.prov;
+    return provinceFromText((S.user && S.user.address) || '');
   }
 
   function shippingFee() {
@@ -2960,9 +3076,20 @@
     const sub = cartSubtotal();
     const disc = couponDiscount();
     const ship = shippingFee();
-    const tot = sub - disc + ship;
+    const remote = remoteFee();
+    const tot = sub - disc + ship + remote;
     return `
       <div class="section-head"><h2>ตะกร้าสินค้า <span style="color:var(--text-muted);font-size:14px;font-weight:400">(${S.cart.length} รายการ)</span></h2></div>
+      ${(() => {
+        const r = currentRemoteArea();
+        if (!r) return '';
+        const where = r.whole ? `จ.${esc(r.prov)}` : `อ.${esc(r.dist)} จ.${esc(r.prov)}`;
+        const fee = Number(S.remoteFee) || 0;
+        return `<div style="background:#e6f4ff;border:1px solid #91caff;padding:11px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#003a75;line-height:1.7">
+          📍 <b>${where} เป็นพื้นที่ห่างไกล</b>${fee > 0 ? ` — มีค่าจัดส่งเพิ่ม ${money(fee)}` : ''}<br>
+          <span style="font-size:12px">อาจใช้เวลาส่งนานกว่าปกติ 1-3 วัน</span>
+        </div>`;
+      })()}
       ${missingCartItems().length ? `
         <div style="background:#fff3cd;border:1px solid #ffc107;padding:11px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#7a5a00;line-height:1.7">
           ⚠️ มี ${missingCartItems().length} รายการในตะกร้าที่ไม่มีในร้านแล้ว — ไม่ถูกนำมาคิดเงิน
@@ -3019,6 +3146,7 @@
           ${disc > 0 ? `<div class="summ-row"><span>คูปอง</span><span class="mono">−${money(disc)}</span></div>` : ''}
           <div class="summ-row"><span>น้ำหนักรวม</span><span class="mono">${fmtKg(cartWeight())}</span></div>
           <div class="summ-row ${ship===0?'free':''}"><span>ค่าจัดส่ง</span><span class="mono">${ship===0?'ฟรี':money(ship)}</span></div>
+          ${remote > 0 ? `<div class="summ-row"><span>พื้นที่ห่างไกล${currentRemoteArea() && currentRemoteArea().dist ? ` (${esc(currentRemoteArea().dist)})` : ''}</span><span class="mono">${money(remote)}</span></div>` : ''}
           ${S.coShipping !== 'pickup' ? `<div style="font-size:11px;color:var(--text-muted);margin:-4px 0 8px;line-height:1.6">
             คิดจากน้ำหนักรวม · ปลายทาง ${esc(ZONE_LABEL[shipZoneOf(currentShipProvince())])}
             ${currentShipProvince() ? '' : '<br>(ยังไม่ระบุจังหวัด — คิดเรตภาคกลางไว้ก่อน ปรับตามจริงตอน checkout)'}
@@ -3052,7 +3180,8 @@
     const sub = cartSubtotal();
     const disc = couponDiscount();
     const ship = shippingFee();
-    const tot = sub - disc + ship;
+    const remote = remoteFee();
+    const tot = sub - disc + ship + remote;
     return `
       <div class="progress">
         <div class="progress-step done"><span class="n">✓</span><span>ตะกร้า</span></div>
@@ -3198,6 +3327,7 @@
             <div class="summ-row"><span>ยอดสินค้า</span><span class="mono">${money(sub)}</span></div>
             ${disc>0?`<div class="summ-row"><span>คูปอง</span><span class="mono">−${money(disc)}</span></div>`:''}
             <div class="summ-row ${ship===0?'free':''}"><span>ค่าจัดส่ง</span><span class="mono">${ship===0?'ฟรี':money(ship)}</span></div>
+            ${remote > 0 ? `<div class="summ-row"><span>พื้นที่ห่างไกล</span><span class="mono">${money(remote)}</span></div>` : ''}
             <div class="summ-total"><b>ชำระทั้งสิ้น</b><b class="tot">${money(tot)}</b></div>
           </div>
           <button class="btn btn-primary btn-block btn-big" style="margin-top:14px" onclick="placeOrder()">ยืนยันสั่งซื้อ ✓</button>
@@ -3230,7 +3360,8 @@
     const sub = cartSubtotal();
     const disc = couponDiscount();
     const ship = shippingFee();
-    const tot = sub - disc + ship;
+    const remote = remoteFee();
+    const tot = sub - disc + ship + remote;
     // Get selected address
     let customer;
     if (isLoggedIn()) {
@@ -3257,7 +3388,8 @@
       total: tot,
       subtotal: sub,
       discount: disc,
-      shipping: ship,
+      shipping: ship + remote,
+      remoteFee: remote,
       items: [...S.cart].map(i => ({ ...i, priceEach: priceOf(EP.find(p=>p.id===i.pid), i.qty) })),
       shippingMethod: S.coShipping,
       carrierName: null,
@@ -3297,10 +3429,10 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 72;
+  const APP_VERSION = 76;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
-  const NEED_BACKEND = 47;
+  const NEED_BACKEND = 50;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -6037,6 +6169,107 @@
     toast(failed ? `⚠️ อัปเดตได้ ${done} · พลาด ${failed} — กดซ้ำอีกครั้งได้` : `✓ อัปเดตน้ำหนัก ${done} รายการเรียบร้อย`);
   }
 
+  // ซ่อมหัวตาราง products แล้วเติมน้ำหนักให้ในคราวเดียว
+  async function repairSheetColumns() {
+    if (!can('settings')) { denyStaff('ซ่อมโครงสร้าง Sheet'); return; }
+    if (!S.sheetApiUrl) { toast("ยังไม่เชื่อม Sheet"); return; }
+
+    toast("⏳ กำลังตรวจหัวตาราง...");
+    let plan;
+    try { plan = await apiCall("repairProductCols", { apply: false }, true, 40000); }
+    catch (e) { toast("❌ " + (e.message || e)); return; }
+
+    if (!plan || !plan.ok) {
+      toast(/unknown action/i.test(String((plan && plan.error) || ''))
+        ? `⚠️ ต้อง deploy Code.gs v${NEED_BACKEND} ก่อน`
+        : "❌ " + ((plan && plan.error) || ''));
+      return;
+    }
+
+    const need = (plan.missingColumns || []).length || (plan.orphanColumns || []).length || plan.updatedAtOverwritten;
+    if (!need) { toast("✓ หัวตารางถูกต้องอยู่แล้ว ไม่ต้องซ่อม"); return; }
+
+    const lines = [];
+    if ((plan.missingColumns || []).length) lines.push(`• เพิ่มหัวตารางที่ขาด: ${plan.missingColumns.join(', ')}`);
+    if ((plan.orphanColumns || []).length) lines.push(`• ล้างข้อมูลในคอลัมน์ที่ไม่มีหัวตาราง ${plan.orphanColumns.length} คอลัมน์`);
+    if (plan.updatedAtOverwritten) lines.push(`• ล้าง updated_at ที่โดนตัวเลขเขียนทับ`);
+
+    if (!confirm(
+      "จะซ่อมโครงสร้าง Sheet ตามนี้\n\n" + lines.join("\n") +
+      "\n\nราคา สต็อก ชื่อสินค้า และข้อมูลอื่นไม่ถูกแตะ\n" +
+      "หลังซ่อมเสร็จจะเติมน้ำหนักจริงให้อัตโนมัติ\n\nดำเนินการเลยไหม?"
+    )) return;
+
+    toast("⏳ กำลังซ่อมหัวตาราง...");
+    let res;
+    try { res = await apiCall("repairProductCols", { apply: true }, true, 60000); }
+    catch (e) { toast("❌ " + (e.message || e)); return; }
+    if (!res || !res.ok) { toast("❌ " + ((res && res.error) || 'ซ่อมไม่สำเร็จ')); return; }
+
+    toast("✓ ซ่อมตาราง products แล้ว · กำลังเช็คตารางลูกค้า...");
+
+    // ตาราง customers มีปัญหาแบบเดียวกัน — คอลัมน์ pass_hash/pass_salt ถูกเพิ่มทีหลัง
+    try {
+      const c = await apiCall("repairCustomerCols", { apply: true }, true, 40000);
+      if (c && c.ok && (c.addedColumns || []).length) {
+        toast(`✓ เติมคอลัมน์ในตารางลูกค้า: ${c.addedColumns.join(', ')}`);
+      }
+    } catch (e) { console.warn("[repair customers]", e); }
+
+    toast("⏳ กำลังเติมน้ำหนัก...");
+    await pullProductsFromSheet();
+    await applyShipWeights();
+    await pullProductsFromSheet();
+    await pullCustomersFromSheet().catch(()=>{});
+    render();
+  }
+
+  // ส่องว่า Sheet เก็บน้ำหนักไว้ตรงไหน — ใช้ตอนใน Sheet มีเลขแต่เว็บอ่านไม่เจอ
+  async function checkSheetWeights() {
+    if (!S.sheetApiUrl) { toast("ยังไม่เชื่อม Sheet"); return; }
+    setDiag(`<div style="background:var(--surface-warm);padding:14px;border-radius:10px;margin-bottom:16px;color:var(--text-muted)">⏳ กำลังอ่านข้อมูลจาก Sheet...</div>`);
+    let res;
+    try { res = await apiCall("productsDiag", {}, true, 40000); }
+    catch (e) { res = { ok: false, error: String(e.message || e) }; }
+
+    if (!res || !res.ok) {
+      setDiag(`<div style="background:#fde8e8;border:1px solid #f5a3a3;padding:14px;border-radius:10px;margin-bottom:16px;font-size:13px">
+        ❌ อ่านไม่ได้: ${esc((res && res.error) || '')}<br>
+        ${/unknown action/i.test(String((res&&res.error)||'')) ? `<b>ต้อง deploy Code.gs v${NEED_BACKEND} ก่อน</b>` : ''}
+      </div>`);
+      return;
+    }
+
+    const okHeader = res.headerMatchesCode;
+    const hasW = (res.rowsWithWeight || 0) > 0;
+    const parsedOk = (res.parsedSample || []).some(x => Number(x.weight) > 0);
+
+    setDiag(`
+      <div style="background:${hasW && parsedOk ? '#e6f7ed' : '#fff3cd'};border:1px solid ${hasW && parsedOk ? '#8ed9ae' : '#ffc107'};padding:14px 16px;border-radius:10px;margin-bottom:16px;font-size:13px;line-height:1.9">
+        <div style="font-weight:800;font-size:15px;margin-bottom:8px">📋 น้ำหนักใน Sheet</div>
+        <div>สินค้าทั้งหมด: <b>${res.rows}</b> แถว</div>
+        <div>คอลัมน์ weight: <b>${esc(res.weightColumn || '')}</b></div>
+        <div>แถวที่มีน้ำหนักจริง: <b style="color:${hasW ? '#0B7A3E' : '#b02a2a'}">${res.rowsWithWeight}</b> / ${res.rows}</div>
+        <div>หัวตารางตรงกับที่โค้ดคาดไว้: <b>${okHeader ? '✅ ตรง' : '⚠️ ไม่ตรง (แต่ v' + NEED_BACKEND + ' อ่าน/เขียนตามชื่อคอลัมน์แล้ว จึงยังทำงานได้)'}</b></div>
+
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.1)">
+          <b>ค่าดิบ 3 แถวแรกใน Sheet</b>
+          ${(res.samples || []).map(x => `<div style="font-family:monospace;font-size:11px">${esc(x.id)} → "${esc(x.weightRaw)}" (${esc(x.weightType)})</div>`).join('')}
+        </div>
+
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.1)">
+          <b>ค่าที่ backend แปลงแล้วส่งให้เว็บ</b>
+          ${(res.parsedSample || []).map(x => `<div style="font-family:monospace;font-size:11px">${esc(x.id)} → ${esc(String(x.weight))} kg ${Number(x.weight) > 0 ? '✅' : '❌'}</div>`).join('')}
+        </div>
+
+        ${!hasW ? `<div style="margin-top:10px;color:#b02a2a">👉 Sheet ยังไม่มีน้ำหนัก — กดปุ่ม <b>⚖️ เติมน้ำหนักจริง</b> ด้านบน</div>`
+          : !parsedOk ? `<div style="margin-top:10px;color:#b02a2a">👉 Sheet มีเลข แต่ backend อ่านไม่ได้ — ส่งภาพนี้ให้ผมดู</div>`
+          : `<div style="margin-top:10px;color:#0B7A3E">✅ ทุกอย่างถูกต้อง ถ้าหน้าเว็บยังไม่อัปเดต กด <b>🔄 โหลดสินค้าใหม่</b></div>`}
+        <button class="btn btn-outline" style="margin-top:12px" onclick="pullProductsFromSheet().then(()=>render())">🔄 โหลดสินค้าใหม่จาก Sheet</button>
+      </div>`);
+    setTimeout(() => { const e = document.getElementById('backend-check'); if (e) e.scrollIntoView({behavior:'smooth',block:'center'}); }, 50);
+  }
+
   function saveShipRates() {
     if (!can('settings')) { denyStaff('แก้อัตราค่าส่ง'); return; }
     const out = [];
@@ -6233,7 +6466,43 @@
             <button class="btn btn-primary" onclick="saveShipRates()">💾 บันทึกอัตราค่าส่ง</button>
             <button class="btn btn-outline" onclick="addShipRate()">➕ เพิ่มขั้น</button>
             <button class="btn btn-ghost" onclick="resetShipRates()">↩️ กลับค่าเริ่มต้น</button>
+            <button class="btn btn-outline" onclick="checkSheetWeights()">🔍 ตรวจน้ำหนักใน Sheet</button>
+            <button class="btn btn-outline" onclick="repairSheetColumns()" style="border-color:var(--brand);color:var(--brand)">🔧 ซ่อมหัวตาราง Sheet</button>
           </div>
+          <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px">
+            <h4 style="margin:0 0 4px;font-size:14px">📍 ค่าส่งเพิ่มพื้นที่ห่างไกล</h4>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.7">
+              ครอบคลุม <b>${Object.keys(REMOTE_AREAS).length} จังหวัด</b> ·
+              ดอยสูง ชายแดนใต้ เกาะ และพื้นที่ป่า/ชายแดน — ระบบตรวจจากอำเภอปลายทางให้เอง
+            </div>
+            <div style="display:grid;grid-template-columns:200px 1fr;gap:0 16px;align-items:start">
+              ${inp('remoteFee','คิดเพิ่ม (บาท)',String(Number(S.remoteFee)||0),'0','number')}
+              <div style="font-size:12px;color:var(--text-muted);padding-top:26px;line-height:1.7">
+                ใส่ <b>0</b> = ไม่คิดเพิ่ม (ยังขึ้นป้ายบอกลูกค้าว่าเป็นพื้นที่ห่างไกล)
+              </div>
+            </div>
+            ${!(Number(S.remoteFee) > 0) ? `
+              <div style="background:#fff3cd;border:1px solid #ffc107;padding:10px 12px;border-radius:8px;font-size:12.5px;color:#7a5a00;line-height:1.75">
+                ⚠️ <b>ยังไม่ได้ตั้งจำนวนเงิน</b> — ตอนนี้ระบบตรวจพื้นที่ห่างไกลได้แล้ว แต่ยังไม่คิดเงินเพิ่ม<br>
+                ใส่จำนวนที่ขนส่งเรียกเก็บจริง แล้วกด 💾 บันทึก ด้านล่าง
+              </div>` : `
+              <div style="background:#e6f7ed;border:1px solid #8ed9ae;padding:10px 12px;border-radius:8px;font-size:12.5px;color:#0B7A3E">
+                ✅ คิดเพิ่ม ${money(Number(S.remoteFee))} สำหรับพื้นที่ห่างไกล
+              </div>`}
+            <details style="margin-top:12px">
+              <summary style="cursor:pointer;font-size:12px;color:var(--text-muted)">ดูรายชื่อพื้นที่ทั้งหมด</summary>
+              <div style="font-size:12px;line-height:1.9;margin-top:8px;max-height:220px;overflow-y:auto;background:var(--surface-warm);padding:10px 12px;border-radius:8px">
+                ${Object.entries(REMOTE_AREAS).map(([p, d]) =>
+                  `<div><b>${esc(p)}</b> — ${d === '*' ? 'ทั้งจังหวัด' : d.map(x => esc(x)).join(', ')}</div>`).join('')}
+              </div>
+              <div style="background:#fff3cd;border:1px solid #ffc107;padding:9px 12px;border-radius:8px;margin-top:8px;font-size:12px;color:#7a5a00;line-height:1.7">
+                ⚠️ <b>2 พื้นที่ที่ระบบตรวจให้ไม่ได้</b> — ใช้อำเภอร่วมกับพื้นที่บนฝั่ง ถ้าเหมาจะไปเก็บเงินคนบนฝั่งด้วย<br>
+                ${REMOTE_MANUAL.map(m => `• <b>${esc(m.note.replace('ถ้าส่ง','').replace(' ต้องคิดเพิ่มเอง',''))}</b> (ต.${esc(m.subdist)} อ.${esc(m.dist)} จ.${esc(m.prov)})`).join('<br>')}<br>
+                สองอันนี้ต้องดูเองตอนแพ็กของ
+              </div>
+            </details>
+          </div>
+
           ${(() => {
             const diffs = weightDiffs();
             const total = Object.keys(SHIP_DATA).length;
@@ -6441,9 +6710,10 @@
     S.cloudinaryPreset = g('cloudinaryPreset');
     S.gaTagId = g('gaTagId');
     S.liffId = g('liffId');
-    ['coName','coBranch','coAddress','coTaxId','coPhone','vatRate',
+    ['coName','coBranch','coAddress','coTaxId','coPhone','vatRate','remoteFee',
      'billFooter','billFooterLine','billFooterSub','billFooterQr'].forEach(k => { S[k] = g(k); });
     S.vatRate = Number(S.vatRate) || 7;
+    S.remoteFee = Number(S.remoteFee) || 0;
     const vm = document.getElementById('set-vatMode');
     if (vm) S.vatMode = vm.value;
     S.lineOA = g('lineOA');
@@ -6557,7 +6827,7 @@
 
   // Shop settings sync กับ Sheet (แก้ปัญหา Vercel preview URL localStorage หาย)
   const SETTING_KEYS = ['shopName','shopPhone','shopAddress','promptPayId','customQrImage',
-    'coName','coBranch','coAddress','coTaxId','coPhone','vatRate','vatMode',
+    'coName','coBranch','coAddress','coTaxId','coPhone','vatRate','vatMode','remoteFee',
     'billFooter','billFooterLine','billFooterSub','billFooterQr',
     'bankName','bankAccountName','bankAccountNo',
     'bankName2','bankAccountName2','bankAccountNo2',
