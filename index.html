@@ -1734,18 +1734,37 @@
   // =======================================================
   const $ = (id) => document.getElementById(id);
   const money = (n) => { const v = Number(n)||0; return "฿" + v.toLocaleString("th-TH", { minimumFractionDigits: (v%1)?2:0, maximumFractionDigits: 2 }); };
+  // ต้องทนกับสินค้าที่หาไม่เจอ / ไม่มีขั้นราคา
+  // เดิมพังทันทีถ้า p เป็น undefined หรือ p.tiers ไม่มี
+  // → ทั้งหน้าตะกร้าเรนเดอร์ไม่ออก ลูกค้ากดตะกร้าแล้วไม่ขึ้นอะไรเลย
   const priceOf = (p, qty = 1) => {
+    if (!p) return 0;
     if (S.mode === "wholesale") {
-      const tier = p.tiers.find(t => qty >= t[0] && qty <= t[1]);
-      return tier ? tier[2] : p.wholesale;
+      const tiers = Array.isArray(p.tiers) ? p.tiers : [];
+      const tier = tiers.find(t => Array.isArray(t) && qty >= t[0] && qty <= t[1]);
+      return Number(tier ? tier[2] : p.wholesale) || Number(p.retail) || 0;
     }
-    return p.retail;
+    return Number(p.retail) || 0;
   };
+
+  // สินค้าในตะกร้าที่หาไม่เจอแล้ว (ถูกลบ/เปลี่ยนรหัส) — ใช้เช็คก่อนคิดเงิน
+  function missingCartItems() {
+    return (S.cart || []).filter(i => !EP.find(x => x.id === i.pid));
+  }
+
+  function removeMissingCartItems() {
+    const before = (S.cart || []).length;
+    S.cart = (S.cart || []).filter(i => EP.find(x => x.id === i.pid));
+    saveState(); updateCartBadge();
+    toast(`ลบสินค้าที่ไม่มีแล้วออก ${before - S.cart.length} รายการ`);
+    render();
+  }
   function cartCount() { return S.cart.reduce((s, i) => s + i.qty, 0); }
   function cartSubtotal() {
-    return S.cart.reduce((s, i) => {
+    return (S.cart || []).reduce((s, i) => {
       const p = EP.find(x => x.id === i.pid);
-      return s + priceOf(p, i.qty) * i.qty;
+      if (!p) return s;                       // ไม่รู้ราคา ก็ไม่เอามาคิดเงิน
+      return s + priceOf(p, i.qty) * (Number(i.qty) || 0);
     }, 0);
   }
   function findCoupon(code) {
@@ -2900,17 +2919,35 @@
     const tot = sub - disc + ship;
     return `
       <div class="section-head"><h2>ตะกร้าสินค้า <span style="color:var(--text-muted);font-size:14px;font-weight:400">(${S.cart.length} รายการ)</span></h2></div>
+      ${missingCartItems().length ? `
+        <div style="background:#fff3cd;border:1px solid #ffc107;padding:11px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#7a5a00;line-height:1.7">
+          ⚠️ มี ${missingCartItems().length} รายการในตะกร้าที่ไม่มีในร้านแล้ว — ไม่ถูกนำมาคิดเงิน
+          <button class="btn btn-outline" style="margin-left:8px;font-size:12px;padding:3px 12px" onclick="removeMissingCartItems()">🗑️ ลบออก</button>
+        </div>` : ''}
       ${toggleBar(false)}
       <div class="cart-page">
         <div class="cart-items">
           <div class="cart-head-row"><div></div><div>สินค้า</div><div>ราคา</div><div>จำนวน</div><div style="text-align:right">รวม</div><div></div></div>
           ${S.cart.map((item, idx) => {
             const p = EP.find(x => x.id === item.pid);
+            // สินค้าหาไม่เจอ (ถูกลบ/เปลี่ยนรหัส) — ต้องแสดงแถวให้กดลบได้
+            // เดิมพังทั้งหน้า ลูกค้าเลยกดตะกร้าแล้วไม่ขึ้นอะไรและลบของก็ไม่ได้
+            if (!p) {
+              return `<div class="cart-row" style="opacity:.75">
+                <div class="cart-thumb">❓</div>
+                <div class="cart-nm">สินค้านี้ไม่มีในร้านแล้ว
+                  <div class="sub" style="color:#b02a2a">SKU: ${esc(item.pid)}${item.size ? ' · ขนาด: '+esc(item.size) : ''}</div></div>
+                <div class="cart-p mono">—</div>
+                <div class="qty-ctrl" style="opacity:.4;pointer-events:none"><button>−</button><input value="${Number(item.qty)||0}" readonly><button>+</button></div>
+                <div class="cart-p b mono">—</div>
+                <div class="cart-del" onclick="removeCart(${idx});render()" title="ลบ">🗑️</div>
+              </div>`;
+            }
             const each = priceOf(p, item.qty);
             const line = each * item.qty;
             return `<div class="cart-row">
-              <div class="cart-thumb">${p.icon}</div>
-              <div class="cart-nm">${p.name}<div class="sub">${item.size ? 'ขนาด: '+item.size+' · ' : ''}SKU: ${p.id}</div></div>
+              <div class="cart-thumb">${p.icon || '📦'}</div>
+              <div class="cart-nm">${esc(p.name || '')}<div class="sub">${item.size ? 'ขนาด: '+esc(item.size)+' · ' : ''}SKU: ${esc(p.id)}</div></div>
               <div class="cart-p mono">${money(each)}</div>
               <div class="qty-ctrl">
                 <button onclick="updateCartQty(${idx},-1);render()">−</button>
@@ -3090,10 +3127,16 @@
           <h3>คำสั่งซื้อของคุณ</h3>
           ${S.cart.map(item => {
             const p = EP.find(x => x.id === item.pid);
+            if (!p) return `<div class="ord-line" style="opacity:.7">
+              <div class="th">❓</div>
+              <div class="nm" style="color:#b02a2a">สินค้านี้ไม่มีแล้ว<div class="sub">${esc(item.pid)}</div></div>
+              <div class="mono">—</div>
+            </div>`;
             const line = priceOf(p, item.qty) * item.qty;
+            const nm = String(p.name || '');
             return `<div class="ord-line">
-              <div class="th">${p.icon}</div>
-              <div class="nm">${p.name.slice(0,26)}...<div class="sub">×${item.qty}${item.size?' · '+item.size:''}</div></div>
+              <div class="th">${p.icon || '📦'}</div>
+              <div class="nm">${esc(nm.length > 26 ? nm.slice(0,26) + '...' : nm)}<div class="sub">×${item.qty}${item.size?' · '+esc(item.size):''}</div></div>
               <div class="mono">${money(line)}</div>
             </div>`;
           }).join("")}
@@ -3115,6 +3158,12 @@
 
   async function placeOrder() {
     if (_submitting) { toast("⏳ กำลังดำเนินการ กรุณารอสักครู่"); return; }
+    const missing = missingCartItems();
+    if (missing.length) {
+      toast(`⛔ มี ${missing.length} รายการที่ไม่มีในร้านแล้ว — ลบออกก่อนสั่งซื้อ`);
+      setTimeout(() => go('/cart'), 1200);
+      return;
+    }
     _submitting = true;
     try { await _placeOrder(); } finally { _submitting = false; }
   }
@@ -3194,7 +3243,7 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 67;
+  const APP_VERSION = 68;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
   const NEED_BACKEND = 47;
