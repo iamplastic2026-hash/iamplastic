@@ -1107,6 +1107,7 @@
     sheetCoupons: safeGet("iamplastic.sheetCoupons", []),
     sheetReviews: safeGet("iamplastic.sheetReviews", null),
     promosPendingPush: safeGet("iamplastic.promosPendingPush", false),
+    regDraft: safeGet("iamplastic.regDraft", {}),
     tiktokAutoplay: safeGet("iamplastic.tiktokAutoplay", true),
     sheetLastSync: safeGet("iamplastic.sheetLastSync", 0),
     autoSync: safeGet("iamplastic.autoSync", true),
@@ -1193,7 +1194,7 @@
     "adminAuth", "adminUser", "adminPassHash",
     "productOverrides", "deletedProducts", "newProducts",
     "user", "registeredUsers", "lineProfile",
-    "tiktokAutoplay", "autoSync", "promosPendingPush",
+    "tiktokAutoplay", "autoSync", "promosPendingPush", "regDraft",
   ];
 
   const SYNCED_KEYS = [
@@ -2764,7 +2765,16 @@
     `;
   }
 
-  function placeOrder() {
+  // กันกดซ้ำระหว่างรอ Sheet ตอบ — ไม่งั้นได้ออเดอร์/สมาชิกซ้ำ
+  let _submitting = false;
+
+  async function placeOrder() {
+    if (_submitting) { toast("⏳ กำลังดำเนินการ กรุณารอสักครู่"); return; }
+    _submitting = true;
+    try { await _placeOrder(); } finally { _submitting = false; }
+  }
+
+  async function _placeOrder() {
     const now = new Date();
     const yymm = String(now.getFullYear()+543).slice(-2) + String(now.getMonth()+1).padStart(2,'0');
     const rand = String(Math.floor(Math.random()*99999)).padStart(5,'0');
@@ -2817,13 +2827,19 @@
     S.sheetOrders.unshift(order);
     saveState();
     clearCart();
-    // Push to Sheet (fire-and-forget — but log)
-    if (S.sheetApiUrl && S.autoSync) {
-      pushOrderToSheet(order).then(ok => {
-        if (ok) toast(`✓ บันทึกออเดอร์ลง Google Sheet เรียบร้อย`);
-        else toast(`⚠️ ยังไม่ได้ push ลง Sheet — เช็ค Admin Settings`);
-      });
-    } else if (!S.sheetApiUrl) {
+    // ออเดอร์ต้องขึ้น Sheet ให้ได้ — รอผลก่อน อย่าเพิ่งเด้งไปหน้าสำเร็จ
+    // (เดิมติดเงื่อนไข autoSync + fire-and-forget + go() ทันที = ออเดอร์หลุดหายเงียบๆ)
+    if (S.sheetApiUrl) {
+      toast("⏳ กำลังบันทึกออเดอร์...");
+      const ok = await pushOrderToSheet(order);
+      if (ok) {
+        toast(`✓ บันทึกออเดอร์ ${poNo} เรียบร้อย`);
+      } else {
+        order.pendingSync = true;
+        saveState();
+        toast(`⚠️ ออเดอร์ ${poNo} ยังไม่ขึ้นระบบกลาง — จะลองส่งใหม่ให้อัตโนมัติ`);
+      }
+    } else {
       console.warn("[order] Sheet ไม่ได้เชื่อม — order เก็บใน localStorage อย่างเดียว");
     }
     go('/success/' + poNo);
@@ -2833,7 +2849,7 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 50;
+  const APP_VERSION = 51;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -3097,6 +3113,34 @@
     render();
   }
 
+  // ============================================================
+  // ร่างฟอร์มสมัครสมาชิก
+  //
+  // ช่อง input ถูกสร้างใหม่ทุกครั้งที่ render() ทำงาน และ render() ถูกเรียก
+  // จากการ sync เบื้องหลังด้วย → ลูกค้ากรอกอยู่ดีๆ ข้อมูลหายเฉยๆ
+  // เก็บค่าที่พิมพ์ไว้ แล้วใส่กลับเข้า value ทุกครั้งที่ render
+  // (รหัสผ่านเก็บแค่ในหน่วยความจำ ไม่ลง localStorage)
+  // ============================================================
+  const REG_FIELDS = ['firstname','lastname','phone','email','addr','subdist','dist','prov','zip',
+                      'company','taxid','branch','cphone','cemail','caddr'];
+  const REG_SECRET = ['pw','pw2'];
+  let _regPw = {};
+
+  function regDraftSet(key, val) {
+    if (REG_SECRET.indexOf(key) >= 0) { _regPw[key] = val; return; }
+    S.regDraft = S.regDraft || {};
+    S.regDraft[key] = val;
+    safeSet("iamplastic.regDraft", S.regDraft);
+  }
+  function regDraftGet(key) {
+    if (REG_SECRET.indexOf(key) >= 0) return _regPw[key] || '';
+    return (S.regDraft || {})[key] || '';
+  }
+  function regDraftClear() {
+    S.regDraft = {}; _regPw = {};
+    safeSet("iamplastic.regDraft", {});
+  }
+
   function viewRegister() {
     if (isLoggedIn()) { setTimeout(() => go('/'), 10); return ''; }
     const c = S.regIsCorporate;
@@ -3111,23 +3155,23 @@
           <div class="admin-form-section" style="padding:20px;background:var(--surface-warm);border:1px solid var(--border);border-radius:10px;margin-bottom:16px">
             <h3 style="margin:0 0 14px;font-size:14px;padding-bottom:8px;border-bottom:1px solid var(--border)">👤 ข้อมูลบัญชี</h3>
             <div class="form-grid">
-              <div class="form-field"><label>ชื่อ *</label><input id="reg-firstname" placeholder="สุรพงษ์" autofocus></div>
-              <div class="form-field"><label>นามสกุล *</label><input id="reg-lastname" placeholder="ร่มเย็น"></div>
-              <div class="form-field"><label>เบอร์โทร (username) *</label><input id="reg-phone" type="tel" placeholder="0812345678"></div>
-              <div class="form-field"><label>อีเมล *</label><input id="reg-email" type="email" placeholder="you@example.com"></div>
-              <div class="form-field"><label>รหัสผ่าน * <span style="font-weight:400;color:var(--text-muted);font-size:10px">(อย่างน้อย 6 ตัว)</span></label><input id="reg-pw" type="password" placeholder="••••••••"></div>
-              <div class="form-field"><label>ยืนยันรหัสผ่าน *</label><input id="reg-pw2" type="password" placeholder="••••••••"></div>
+              <div class="form-field"><label>ชื่อ *</label><input id="reg-firstname" placeholder="สุรพงษ์" autofocus value="${esc(regDraftGet('firstname'))}" oninput="regDraftSet('firstname', this.value)"></div>
+              <div class="form-field"><label>นามสกุล *</label><input id="reg-lastname" placeholder="ร่มเย็น" value="${esc(regDraftGet('lastname'))}" oninput="regDraftSet('lastname', this.value)"></div>
+              <div class="form-field"><label>เบอร์โทร (username) *</label><input id="reg-phone" type="tel" placeholder="0812345678" value="${esc(regDraftGet('phone'))}" oninput="regDraftSet('phone', this.value)"></div>
+              <div class="form-field"><label>อีเมล *</label><input id="reg-email" type="email" placeholder="you@example.com" value="${esc(regDraftGet('email'))}" oninput="regDraftSet('email', this.value)"></div>
+              <div class="form-field"><label>รหัสผ่าน * <span style="font-weight:400;color:var(--text-muted);font-size:10px">(อย่างน้อย 6 ตัว)</span></label><input id="reg-pw" type="password" placeholder="••••••••" value="${esc(regDraftGet('pw'))}" oninput="regDraftSet('pw', this.value)"></div>
+              <div class="form-field"><label>ยืนยันรหัสผ่าน *</label><input id="reg-pw2" type="password" placeholder="••••••••" value="${esc(regDraftGet('pw2'))}" oninput="regDraftSet('pw2', this.value)"></div>
             </div>
           </div>
 
           <div class="admin-form-section" style="padding:20px;background:var(--surface-warm);border:1px solid var(--border);border-radius:10px;margin-bottom:16px">
             <h3 style="margin:0 0 14px;font-size:14px;padding-bottom:8px;border-bottom:1px solid var(--border)">📍 ที่อยู่จัดส่ง (Default)</h3>
             <div class="form-grid">
-              <div class="form-field wide"><label>ที่อยู่ *</label><input id="reg-addr" placeholder="123/45 หมู่ 5"></div>
-              <div class="form-field"><label>ตำบล/แขวง</label><input id="reg-subdist" placeholder="กำแพงแสน"></div>
-              <div class="form-field"><label>อำเภอ/เขต</label><input id="reg-dist" placeholder="กำแพงแสน"></div>
-              <div class="form-field"><label>จังหวัด *</label><input id="reg-prov" placeholder="นครปฐม"></div>
-              <div class="form-field"><label>รหัสไปรษณีย์ *</label><input id="reg-zip" class="mono" placeholder="73140"></div>
+              <div class="form-field wide"><label>ที่อยู่ *</label><input id="reg-addr" placeholder="123/45 หมู่ 5" value="${esc(regDraftGet('addr'))}" oninput="regDraftSet('addr', this.value)"></div>
+              <div class="form-field"><label>ตำบล/แขวง</label><input id="reg-subdist" placeholder="กำแพงแสน" value="${esc(regDraftGet('subdist'))}" oninput="regDraftSet('subdist', this.value)"></div>
+              <div class="form-field"><label>อำเภอ/เขต</label><input id="reg-dist" placeholder="กำแพงแสน" value="${esc(regDraftGet('dist'))}" oninput="regDraftSet('dist', this.value)"></div>
+              <div class="form-field"><label>จังหวัด *</label><input id="reg-prov" placeholder="นครปฐม" value="${esc(regDraftGet('prov'))}" oninput="regDraftSet('prov', this.value)"></div>
+              <div class="form-field"><label>รหัสไปรษณีย์ *</label><input id="reg-zip" class="mono" placeholder="73140" value="${esc(regDraftGet('zip'))}" oninput="regDraftSet('zip', this.value)"></div>
             </div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:10px">💡 หลังสมัคร สามารถเพิ่ม/แก้ที่อยู่ได้ในหน้า "ที่อยู่ของฉัน" (มีหลายที่อยู่ได้)</div>
           </div>
@@ -3143,12 +3187,12 @@
 
             ${c ? `
               <div class="form-grid">
-                <div class="form-field wide"><label>ชื่อบริษัท / นิติบุคคล *</label><input id="reg-company" placeholder="บริษัท ร่มเย็น จำกัด"></div>
-                <div class="form-field"><label>เลขประจำตัวผู้เสียภาษี (13 หลัก) *</label><input id="reg-taxid" class="mono" placeholder="0-1055-58001-23-4" maxlength="20"></div>
-                <div class="form-field"><label>สาขา</label><input id="reg-branch" placeholder="สำนักงานใหญ่" value="สำนักงานใหญ่"></div>
-                <div class="form-field"><label>เบอร์บริษัท</label><input id="reg-cphone" type="tel" placeholder="02-xxx-xxxx"></div>
-                <div class="form-field"><label>อีเมลบริษัท</label><input id="reg-cemail" type="email" placeholder="admin@company.com"></div>
-                <div class="form-field wide"><label>ที่อยู่บริษัท (สำหรับใบกำกับภาษี) *</label><input id="reg-caddr" placeholder="123/45 ถ.สุขุมวิท แขวง... เขต... กรุงเทพ 10110"></div>
+                <div class="form-field wide"><label>ชื่อบริษัท / นิติบุคคล *</label><input id="reg-company" placeholder="บริษัท ร่มเย็น จำกัด" value="${esc(regDraftGet('company'))}" oninput="regDraftSet('company', this.value)"></div>
+                <div class="form-field"><label>เลขประจำตัวผู้เสียภาษี (13 หลัก) *</label><input id="reg-taxid" class="mono" placeholder="0-1055-58001-23-4" maxlength="20" value="${esc(regDraftGet('taxid'))}" oninput="regDraftSet('taxid', this.value)"></div>
+                <div class="form-field"><label>สาขา</label><input id="reg-branch" placeholder="สำนักงานใหญ่" value="${esc(regDraftGet('branch'))}" oninput="regDraftSet('branch', this.value)"></div>
+                <div class="form-field"><label>เบอร์บริษัท</label><input id="reg-cphone" type="tel" placeholder="02-xxx-xxxx" value="${esc(regDraftGet('cphone'))}" oninput="regDraftSet('cphone', this.value)"></div>
+                <div class="form-field"><label>อีเมลบริษัท</label><input id="reg-cemail" type="email" placeholder="admin@company.com" value="${esc(regDraftGet('cemail'))}" oninput="regDraftSet('cemail', this.value)"></div>
+                <div class="form-field wide"><label>ที่อยู่บริษัท (สำหรับใบกำกับภาษี) *</label><input id="reg-caddr" placeholder="123/45 ถ.สุขุมวิท แขวง... เขต... กรุงเทพ 10110" value="${esc(regDraftGet('caddr'))}" oninput="regDraftSet('caddr', this.value)"></div>
               </div>
             ` : ''}
           </div>
@@ -3186,6 +3230,12 @@
   }
 
   async function doRegister() {
+    if (_submitting) { toast("⏳ กำลังดำเนินการ กรุณารอสักครู่"); return; }
+    _submitting = true;
+    try { await _doRegister(); } finally { _submitting = false; }
+  }
+
+  async function _doRegister() {
     const g = id => (document.getElementById(id) || {}).value || '';
     const firstName = g('reg-firstname').trim();
     const lastName = g('reg-lastname').trim();
@@ -3204,10 +3254,25 @@
     if (password !== password2) { toast("รหัสผ่านไม่ตรงกัน"); return; }
     if (!addr || !prov || !zip) { toast("กรุณากรอกที่อยู่ให้ครบ"); return; }
 
-    // Check duplicate
-    if (S.registeredUsers.find(u => u.phone === phone || u.email === email)) {
+    // ============================================================
+    // เช็คซ้ำ — ต้องดูทั้ง Sheet (ศูนย์กลาง) และในเครื่อง
+    //
+    // บั๊กเดิม: ดูแค่ S.registeredUsers ซึ่งเป็นข้อมูล "เฉพาะเครื่องนี้"
+    // ถ้าสมัครครั้งก่อนแล้วส่งขึ้น Sheet ไม่สำเร็จ จะมีชื่อค้างอยู่ในเครื่อง
+    // → สมัครใหม่ไม่ได้ตลอดกาล ทั้งที่ใน Sheet ไม่มีชื่อเลย
+    // ============================================================
+    const inSheet = (S.sheetCustomers || []).find(u =>
+      (u.phone && u.phone === phone) || (u.email && u.email === email));
+    const inLocal = S.registeredUsers.find(u => u.phone === phone || u.email === email);
+
+    if (inSheet) {
       toast("เบอร์หรืออีเมลนี้เคยสมัครแล้ว — ลองเข้าสู่ระบบแทน");
       return;
+    }
+    if (inLocal) {
+      // มีในเครื่องแต่ไม่มีใน Sheet = ครั้งก่อนส่งขึ้นไม่สำเร็จ → สมัครทับได้ ไม่ต้องบล็อก
+      console.warn("[register] พบข้อมูลค้างในเครื่องที่ยังไม่ขึ้น Sheet — สมัครทับ");
+      S.registeredUsers = S.registeredUsers.filter(u => u !== inLocal);
     }
 
     const fullAddress = `${addr} ต.${g('reg-subdist').trim()||''} อ.${g('reg-dist').trim()||''} จ.${prov} ${zip}`.replace(/\s+/g, ' ').trim();
@@ -3246,22 +3311,40 @@
       userData.companyAddress = caddr;
     }
 
-    // Save + login
+    // ============================================================
+    // ส่งขึ้น Sheet ก่อน แล้วค่อยบอกว่าสมัครสำเร็จ
+    //
+    // บั๊กเดิม 2 ชั้น:
+    //  1) ติดเงื่อนไข S.autoSync — ถ้าปิดไว้ จะไม่ส่งขึ้น Sheet เลยแม้แต่ครั้งเดียว
+    //  2) เป็น fire-and-forget แล้ว go('/') ทันที — request ถูกตัดกลางคัน
+    //     แถมถ้าพลาดก็บอกแค่ admin ลูกค้าเห็น "สมัครสำเร็จ" ทั้งที่ไม่มีชื่อใน Sheet
+    // ============================================================
     S.registeredUsers.push(userData);
     S.user = { role: 'customer', ...userData };
     saveState();
 
-    // Push to Sheet if configured (fire-and-forget)
-    if (S.sheetApiUrl && S.autoSync) {
-      pushCustomerToSheet(userData).then(ok => {
-        if (ok) { safeSet('iamplastic.meSynced', Date.now()); return; }
+    let synced = false;
+    if (S.sheetApiUrl) {
+      toast("⏳ กำลังบันทึกข้อมูล...");
+      synced = await pushCustomerToSheet(userData);
+      if (synced) {
+        safeSet('iamplastic.meSynced', Date.now());
+        await pullCustomersFromSheet().catch(()=>{});
+      } else {
+        userData.pendingSync = true;
+        S.user.pendingSync = true;
+        saveState();
         console.error("[register] ไม่ได้ขึ้น Sheet");
-        // แจ้งเฉพาะ admin — ลูกค้าไม่ต้องรับรู้เรื่องเทคนิค (ข้อมูลอยู่ในเครื่องแล้ว จะ sync ให้อัตโนมัติทีหลัง)
-        if (isAdmin()) setTimeout(() => toast("⚠️ สมัครสำเร็จ แต่ยังไม่ขึ้น Sheet — เช็ค Token ที่ ตั้งค่า"), 2000);
-      });
+      }
     }
 
-    toast(`✅ สมัครสมาชิกสำเร็จ · ยินดีต้อนรับ คุณ${firstName}!`);
+    regDraftClear();
+
+    if (S.sheetApiUrl && !synced) {
+      toast("⚠️ สมัครแล้วแต่ยังบันทึกขึ้นระบบกลางไม่ได้ — จะลองส่งใหม่ให้อัตโนมัติ");
+    } else {
+      toast(`✅ สมัครสมาชิกสำเร็จ · ยินดีต้อนรับ คุณ${firstName}!`);
+    }
     go('/');
   }
 
@@ -3287,12 +3370,45 @@
       (S.user.phone && u.phone === S.user.phone)
     ) || S.user;
     if (!me || (!me.email && !me.phone)) return;
-    // ยิงวันละครั้งพอ ไม่ต้องยิงทุกครั้งที่เปิดหน้า
+    // บัญชีที่สมัครแล้วส่งขึ้น Sheet ไม่สำเร็จ ต้องรีบลองใหม่ ไม่ใช่รอ 12 ชม.
     const key = 'iamplastic.meSynced';
     const last = safeGet(key, 0);
-    if (Date.now() - last < 12 * 60 * 60 * 1000) return;
+    const wait = me.pendingSync ? 60 * 1000 : 12 * 60 * 60 * 1000;
+    if (Date.now() - last < wait) return;
     const ok = await pushCustomerToSheet(me);
-    if (ok) { safeSet(key, Date.now()); console.log("[account] ดันข้อมูลตัวเองขึ้น Sheet แล้ว"); }
+    if (ok) {
+      safeSet(key, Date.now());
+      if (me.pendingSync) {
+        delete me.pendingSync;
+        if (S.user) delete S.user.pendingSync;
+        saveState();
+        toast("✓ บันทึกข้อมูลสมาชิกขึ้นระบบกลางเรียบร้อยแล้ว");
+      }
+      console.log("[account] ดันข้อมูลตัวเองขึ้น Sheet แล้ว");
+    }
+  }
+
+  // กู้รายชื่อที่ค้างอยู่ในเครื่องนี้ขึ้น Sheet (สำหรับคนที่สมัครไว้ตอนระบบยังพัง)
+  async function syncLocalUsersToSheet() {
+    const users = S.registeredUsers || [];
+    if (!users.length) { toast("เครื่องนี้ไม่มีรายชื่อค้างอยู่"); return; }
+    const sheetList = S.sheetCustomers || [];
+    const missing = users.filter(u => !sheetList.some(c =>
+      (c.phone && u.phone && c.phone === u.phone) || (c.email && u.email && c.email === u.email)));
+    if (!missing.length) { toast(`✓ รายชื่อในเครื่องทั้ง ${users.length} คน อยู่ใน Sheet ครบแล้ว`); return; }
+    if (!confirm(`เจอ ${missing.length} รายชื่อในเครื่องนี้ที่ยังไม่มีใน Sheet\nส่งขึ้น Sheet เลยไหม?`)) return;
+
+    let done = 0;
+    for (let i = 0; i < missing.length; i++) {
+      toast(`⏳ กำลังส่ง ${i+1}/${missing.length}...`);
+      if (await pushCustomerToSheet(missing[i])) { delete missing[i].pendingSync; done++; }
+    }
+    saveState();
+    await pullCustomersFromSheet().catch(()=>{});
+    toast(done === missing.length
+      ? `✓ ส่งขึ้น Sheet ครบ ${done} รายชื่อ`
+      : `⚠️ ส่งได้ ${done}/${missing.length} — ที่เหลือลองกดอีกครั้ง`);
+    render();
   }
 
   async function pullCustomersFromSheet() {
@@ -5437,12 +5553,17 @@
         ⚠️ มี <b>${localOnly.length}</b> ลูกค้าในเครื่องนี้ที่ยังไม่ขึ้น Sheet<br>
         กด <b>↑ Sync ขึ้น Sheet</b> มุมขวาบนเพื่อส่งขึ้นไป
       </div>` : ''}
+      ${(S.registeredUsers||[]).some(u=>!(S.sheetCustomers||[]).some(c=>(c.phone&&u.phone&&c.phone===u.phone)||(c.email&&u.email&&c.email===u.email))) ? `
+        <div style="background:#fffbeb;border:2px solid #f59e0b;padding:12px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#92400e;line-height:1.75">
+          ⚠️ <b>เครื่องนี้มี ${(S.registeredUsers||[]).filter(u=>!(S.sheetCustomers||[]).some(c=>(c.phone&&u.phone&&c.phone===u.phone)||(c.email&&u.email&&c.email===u.email))).length} รายชื่อที่ยังไม่มีใน Sheet</b><br>
+          เป็นคนที่สมัครไว้ตอนระบบยังส่งขึ้น Sheet ไม่ได้ — ข้อมูลไม่ได้หาย แค่ค้างอยู่ในเครื่องนี้<br>
+          <button class="btn btn-primary" style="margin-top:8px" onclick="syncLocalUsersToSheet()">↑ ส่งรายชื่อที่ค้างขึ้น Sheet</button>
+        </div>` : ''}
       ${(S.sheetCustomers||[]).length === 0 && (S.registeredUsers||[]).length === 0 ? `
         <div style="background:#e6f4ff;border:1px solid #91caff;padding:12px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#003a75;line-height:1.75">
           💡 <b>ลูกค้าสมัครจากเครื่องอื่นแล้วไม่เห็นที่นี่?</b><br>
-          ข้อมูลที่สมัครตอน Sheet ยังต่อไม่ติด จะค้างอยู่ในเครื่องที่สมัคร<br>
-          <b>วิธีกู้:</b> ให้ลูกค้าเปิดเว็บจากเครื่องเดิมแล้ว login — ระบบจะดันข้อมูลขึ้น Sheet ให้เองอัตโนมัติ (v44+)<br>
-          หรือให้สมัครใหม่ก็ได้ ตอนนี้ระบบบันทึกขึ้น Sheet ได้ปกติแล้ว
+          ข้อมูลที่สมัครตอนระบบยังต่อ Sheet ไม่ติด จะค้างอยู่ในเครื่องที่สมัคร<br>
+          <b>วิธีกู้:</b> ให้ลูกค้าเปิดเว็บจากเครื่องเดิมแล้ว login — ระบบจะดันข้อมูลขึ้น Sheet ให้เองภายใน 1 นาที
         </div>` : ''}
       <div style="margin-bottom:12px">
         <input type="text" id="cust-search" placeholder="🔍 ค้นชื่อ / เบอร์ / อีเมล / บริษัท / Tax ID"
@@ -6059,14 +6180,17 @@
     if (isTax) S.sheetBills.tax.unshift(bill); else S.sheetBills.cash.unshift(bill);
     saveState();
 
-    // Push to bills_cash / bills_tax tab in Sheet
-    if (S.sheetApiUrl && S.autoSync) {
+    // บิลต้องขึ้น Sheet ให้ได้ — ถ้าพลาดต้องบอก ไม่ใช่ log เงียบๆ แล้วขึ้นว่าสำเร็จ
+    let billOk = true;
+    if (S.sheetApiUrl) {
       const res = await apiCall("createBill", { data: bill }, true);
-      if (res && res.ok) console.log("[bill] pushed to Sheet:", bl);
-      else console.error("[bill] push failed:", res && res.error);
+      billOk = !!(res && res.ok);
+      if (!billOk) console.error("[bill] push failed:", res && res.error);
     }
 
-    toast(`✓ สร้าง${isTax?'ใบกำกับภาษี':'บิลเงินสด'} ${bl} แล้ว`);
+    toast(billOk
+      ? `✓ สร้าง${isTax?'ใบกำกับภาษี':'บิลเงินสด'} ${bl} แล้ว`
+      : `⚠️ สร้าง ${bl} แล้วแต่ยังไม่ขึ้น Sheet — เช็คการเชื่อมต่อ`);
     // Reset builder
     S.bill = { items: [], customer: { name:'', phone:'', email:'', address:'', taxId:'', company:'', isCorporate:false }, discount: 0, shipping: 0, shippingMethod: 'kerry', payment: 'cash', note: '', productSearch: '', customerSearch: '' };
     saveState();
