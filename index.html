@@ -800,8 +800,9 @@
     body { background: #fff; }
     .announce, .header, .cat-strip, .bottom-nav, #admin-ribbon, .no-print { display: none !important; }
     main { padding: 0 !important; max-width: none !important; }
-    .bill-paper { box-shadow: none; margin: 0; padding: 15mm; max-width: none; }
-    @page { size: A4; margin: 0; }
+    .bill-paper { box-shadow: none; margin: 0; padding: 10mm; max-width: none; color: #000; }
+    .bill-paper * { color: #000 !important; }
+    @page { size: A4; margin: 8mm; }
   }
 
   /* ---- Search dropdown (bill builder) ---- */
@@ -950,7 +951,7 @@
   </style>
 
 <div class="announce">
-  🎁 ส่งฟรีเมื่อสั่งครบ <b>฿1,500</b> · ออกใบกำกับภาษีได้ · โทร <b>02-xxx-xxxx</b> · <span style="color:var(--wholesale)"><b>โค้ด NEW100</b> ลด ฿100 สั่งแรก</span>
+  🧾 ออกใบกำกับภาษีได้ · ค่าส่งคิดตามน้ำหนักจริง เริ่ม <b>฿29</b> · <span style="color:var(--wholesale)"><b>โค้ด NEW100</b> ลด ฿100 สั่งแรก</span>
 </div>
 
 <header class="header">
@@ -1062,6 +1063,9 @@
     coupon: safeGet("iamplastic.coupon", ""),
     adminAuth: safeGet("iamplastic.adminAuth", false),
     adminUser: safeGet("iamplastic.adminUser", ""),
+    adminRole: safeGet("iamplastic.adminRole", "owner"),
+    adminName: safeGet("iamplastic.adminName", ""),
+    sheetAdminUsers: safeGet("iamplastic.sheetAdminUsers", []),
     adminPassHash: safeGet("iamplastic.adminPassHash", ""),
     productOverrides: safeGet("iamplastic.productOverrides", {}),
     deletedProducts: safeGet("iamplastic.deletedProducts", []),
@@ -1075,6 +1079,18 @@
     sheetBills: safeGet("iamplastic.sheetBills", { cash: [], tax: [] }),
     sheetCustomers: safeGet("iamplastic.sheetCustomers", null),
     // Shop settings
+    // ข้อมูลบริษัทสำหรับหัวบิล / ใบกำกับภาษี
+    coName:    safeGet("iamplastic.coName", "บริษัท ทรีวันเดอร์ส จำกัด"),
+    coBranch:  safeGet("iamplastic.coBranch", "สำนักงานใหญ่"),
+    coAddress: safeGet("iamplastic.coAddress", "65 ซ.เทียนทะเล 26 แยก 2 ถ.บางขุนเทียน-ชายทะเล แขวงท่าข้าม เขตบางขุนเทียน กทม. 10150"),
+    coTaxId:   safeGet("iamplastic.coTaxId", "0105563154482"),
+    coPhone:   safeGet("iamplastic.coPhone", ""),
+    vatRate:   safeGet("iamplastic.vatRate", 7),
+    vatMode:   safeGet("iamplastic.vatMode", "included"),   // included = ราคารวม VAT แล้ว
+    billFooter: safeGet("iamplastic.billFooter", "ถูกกว่า เร็วกว่า!!!!"),
+    billFooterLine: safeGet("iamplastic.billFooterLine", "add LINE : @thefoodbox"),
+    billFooterSub: safeGet("iamplastic.billFooterSub", "สั่งตรงกับร้าน ลด 3% ไม่มีขั้นต่ำ"),
+    billFooterQr: safeGet("iamplastic.billFooterQr", ""),
     promptPayId: safeGet("iamplastic.promptPayId", "0812345678"),
     customQrImage: safeGet("iamplastic.customQrImage", ""),
     bankName: safeGet("iamplastic.bankName", ""),
@@ -1108,6 +1124,7 @@
     sheetReviews: safeGet("iamplastic.sheetReviews", null),
     promosPendingPush: safeGet("iamplastic.promosPendingPush", false),
     regDraft: safeGet("iamplastic.regDraft", {}),
+    shipTable: safeGet("iamplastic.shipTable", null),
     tiktokAutoplay: safeGet("iamplastic.tiktokAutoplay", true),
     sheetLastSync: safeGet("iamplastic.sheetLastSync", 0),
     autoSync: safeGet("iamplastic.autoSync", true),
@@ -1191,7 +1208,7 @@
   // ============================================================
   const LOCAL_KEYS = [
     "mode", "cart", "coupon", "orders", "wishlist",
-    "adminAuth", "adminUser", "adminPassHash",
+    "adminAuth", "adminUser", "adminPassHash", "adminRole", "adminName",
     "productOverrides", "deletedProducts", "newProducts",
     "user", "registeredUsers", "lineProfile",
     "tiktokAutoplay", "autoSync", "promosPendingPush", "regDraft",
@@ -1200,12 +1217,15 @@
   const SYNCED_KEYS = [
     "sheetLastSync",   // sheetApiUrl / sheetToken ไม่อยู่ที่นี่แล้ว — มาจาก SHEET_API_URL ในโค้ด
     "sheetProducts", "sheetOrders", "sheetBills",
-    "sheetCustomers", "sheetCoupons", "sheetReviews",
+    "sheetCustomers", "sheetCoupons", "sheetReviews", "sheetAdminUsers",
     "tiktokVideos", "banners",
     "promptPayId", "customQrImage",
     "bankName", "bankAccountName", "bankAccountNo",
     "bankName2", "bankAccountName2", "bankAccountNo2",
     "shopName", "shopAddress", "shopPhone",
+    "coName", "coBranch", "coAddress", "coTaxId", "coPhone", "shipTable",
+    "vatRate", "vatMode",
+    "billFooter", "billFooterLine", "billFooterSub", "billFooterQr",
     "slipokApiKey", "slipokBranchId",
     "cloudinaryCloud", "cloudinaryPreset",
     "gaTagId", "liffId",
@@ -1222,6 +1242,46 @@
       if (SYNCED_KEYS.indexOf(k) < 0) { console.warn("[saveSynced] ไม่รู้จัก key:", k); return; }
       safeSet("iamplastic." + k, S[k]);
     });
+  }
+
+  // ============================================================
+  // สิทธิ์การใช้งานของแอดมิน
+  //
+  //   owner = เจ้าของร้าน ทำได้ทุกอย่าง
+  //   staff = ลูกน้อง เปิดบิล/ดูข้อมูลได้ · แก้ไขอะไรไม่ได้
+  //
+  // ⚠️ ข้อจำกัดที่ต้องรู้: การกันสิทธิ์นี้ทำงานฝั่งหน้าเว็บ
+  // กันความผิดพลาดและการกดมั่วได้ แต่กันคนที่ตั้งใจเลี่ยงผ่าน
+  // devtools ไม่ได้ เพราะ token ของ Sheet ฝังอยู่ในหน้าเว็บอยู่แล้ว
+  // ถ้าต้องการกันจริงจัง ต้องมี server แยกที่ตรวจสิทธิ์ทุกคำขอ
+  // ============================================================
+  const PERMS = {
+    owner: ['bill','order','product','customer','coupon','promo','tiktok','settings','admins','delete'],
+    staff: ['bill'],          // ที่เหลือ = ดูได้อย่างเดียว
+  };
+
+  function adminRole() { return isAdmin() ? (S.adminRole || 'owner') : null; }
+  function isOwner()   { return adminRole() === 'owner'; }
+
+  // can('product') = แก้ไขสินค้าได้ไหม · ดูได้เสมอถ้าเป็นแอดมิน
+  function can(perm) {
+    const r = adminRole();
+    if (!r) return false;
+    return (PERMS[r] || []).indexOf(perm) >= 0;
+  }
+
+  // ปุ่ม/เมนูที่ลูกน้องกดไม่ได้ — ซ่อนไปเลยจะได้ไม่งง
+  function ownerOnly(html) { return isOwner() ? html : ''; }
+
+  function denyStaff(what) {
+    toast(`⛔ บัญชีลูกน้องไม่มีสิทธิ์${what || 'ทำรายการนี้'} — ให้เจ้าของร้านเป็นคนทำ`);
+  }
+
+  // เส้นทางที่ลูกน้องเข้าไม่ได้เลย (กันพิมพ์ URL ตรงๆ)
+  const OWNER_ONLY_ROUTES = ['/admin/settings','/admin/manage','/admin/account','/admin/new','/admin/edit','/admin/promos','/admin/tiktok','/admin/coupons'];
+  function routeAllowed(route) {
+    if (!isAdmin() || isOwner()) return true;
+    return !OWNER_ONLY_ROUTES.some(r => route.indexOf(r) === 0);
   }
 
   // Auth helpers
@@ -1582,6 +1642,27 @@
 
   // Order status flow
   const STATUS_FLOW = ["pending_payment", "paid", "preparing", "shipping", "delivered"];
+
+  // ============================================================
+  // ลำดับงานที่บังคับ: ลูกค้าแนบสลิป → แอดมินตรวจ → ถึงจะจัดของ/เปิดบิลได้
+  //
+  // กันเคสจัดของส่งไปแล้วเพิ่งรู้ว่าเงินไม่เข้า
+  // ============================================================
+  function slipOk(o) {
+    if (!o) return false;
+    if (o.slipStatus === 'verified') return true;
+    // บิลหน้าร้าน (เงินสด/เครดิต) ไม่ต้องมีสลิป
+    return ['cash','credit'].indexOf(o.payment) >= 0;
+  }
+
+  // อธิบายว่าติดอะไรอยู่ — ใช้ทั้งกันปุ่มและโชว์เหตุผล
+  function orderBlockReason(o) {
+    if (!o) return 'ไม่พบคำสั่งซื้อ';
+    if (slipOk(o)) return null;
+    if (!o.slip) return 'ลูกค้ายังไม่ได้แนบสลิปโอนเงิน';
+    if (o.slipStatus === 'rejected') return 'สลิปถูกปฏิเสธ — ต้องให้ลูกค้าส่งใหม่';
+    return 'สลิปยังรอแอดมินตรวจสอบ';
+  }
   const STATUS_LABEL = {
     pending_payment: { th: "รอชำระเงิน", color: "var(--brand)", icon: "⏳", desc: "จ่ายภายใน 30 นาที" },
     paid: { th: "ได้รับชำระแล้ว", color: "var(--success)", icon: "💰", desc: "รอจัดสินค้า" },
@@ -1658,9 +1739,61 @@
   function cartTotal() {
     return Math.max(0, cartSubtotal() - couponDiscount());
   }
+  // ============================================================
+  // ค่าจัดส่ง — คิดตามน้ำหนักรวมของตะกร้า
+  //
+  // ตารางนี้ถอดมาจากไฟล์ shipping_info.xlsx ของร้าน (ตั้งค่าขนส่ง Shopee)
+  // ตรวจกับสินค้าจริง 270 รายการแล้ว ตรง 100%
+  // แก้อัตราได้ที่ ตั้งค่าร้าน → ค่าจัดส่ง
+  // ============================================================
+  // ============================================================
+  // น้ำหนัก/ขนาดจริงจากไฟล์ตั้งค่าขนส่ง Shopee (shipping_info.xlsx)
+  // รูปแบบ: รหัสสินค้า → [น้ำหนัก kg, ค่าส่ง Standard, ขนาดกล่อง]
+  // ใช้เติมลง Sheet ด้วยปุ่มในหน้า ตั้งค่าร้าน → ค่าจัดส่ง
+  // ============================================================
+  const SHIP_DATA = {"56802318819":[2.0,35.0,"35×27×33 cm"],"55264453099":[1.7,35.0,"35×27×33 cm"],"53356104731":[0.45,29.0,"25×20×30 cm"],"50450230956":[2.0,35.0,"35×27×33 cm"],"49502090550":[1.35,35.0,"35×27×33 cm"],"47315692844":[1.7,35.0,"35×27×33 cm"],"46454833574":[1.8,35.0,"35×27×33 cm"],"44269391925":[2.0,35.0,"35×27×33 cm"],"43612095133":[2.0,35.0,"35×27×33 cm"],"42926656254":[2.0,35.0,"35×27×33 cm"],"42714498650":[0.75,29.0,"30×20×30 cm"],"42212591619":[2.0,35.0,"35×27×33 cm"],"40801202793":[2.0,35.0,"40×29×27 cm"],"40512377965":[2.0,35.0,"35×27×33 cm"],"40172388011":[2.0,35.0,"35×27×33 cm"],"29664450637":[0.85,29.0,"10×20×10 cm"],"28981704457":[2.0,35.0,"35×27×30 cm"],"27643623579":[2.3,42.0,"35×27×33 cm"],"27312990104":[8.8,75.0,"59×29×51 cm"],"27236940920":[8.9,75.0,"49×49×48 cm"],"27215568985":[1.33,35.0,"35×25×1 cm"],"26917049275":[2.9,42.0,"40×29×48 cm"],"26667059200":[3.0,42.0,"47×33×30 cm"],"26157875137":[2.0,35.0,"35×27×30 cm"],"25775144575":[0.73,29.0,"39×25×22 cm"],"25446539853":[2.8,42.0,"26×34×30 cm"],"25384751679":[2.0,35.0,"35×27×31 cm"],"24588160169":[3.2,55.0,"55×22×47 cm"],"24288149922":[3.5,55.0,"58×25×50 cm"],"23965546887":[2.0,35.0,"35×27×33 cm"],"23858103494":[1.33,35.0,"42×28×1 cm"],"23831638007":[7.0,75.0,"48×42×48 cm"],"23767809151":[1.5,35.0,"30×23×25 cm"],"23767761417":[7.8,75.0,"59×57×30 cm"],"23442324239":[7.5,75.0,"40×40×40 cm"],"23143312641":[7.3,75.0,"40×40×50 cm"],"23097055653":[0.99,29.0,"35×25×1 cm"],"23031640335":[9.7,75.0,"48×42×48 cm"],"22767807918":[1.2,35.0,"28×23×24 cm"],"22731650732":[11.5,113.0,"64×54×43 cm"],"22642325859":[6.8,75.0,"56×29×42 cm"],"22531643311":[12.5,113.0,"63×54×44 cm"],"22478359264":[1.85,35.0,"35×27×33 cm"],"22268812978":[7.9,75.0,"0×0×0 cm"],"22243322629":[7.0,75.0,"0×0×0 cm"],"22242281462":[4.6,55.0,"56×45×28 cm"],"22167764850":[8.0,75.0,"59×57×28 cm"],"21588684174":[7.8,75.0,"59×57×28 cm"],"21388684352":[3.49,55.0,"50×39×33 cm"],"21280090914":[7.5,75.0,"0×0×0 cm"],"21138340557":[4.6,55.0,"56×45×28 cm"],"21033976556":[8.75,75.0,"71×54×42 cm"],"20924780225":[1.9,35.0,"28×23×24 cm"],"20894259701":[1.5,35.0,"45×32×1 cm"],"20879745425":[7.7,75.0,"55×29×46 cm"],"20875948763":[16.8,195.0,"64×54×45 cm"],"20591274061":[10.5,103.0,"64×54×45 cm"],"20575944466":[10.7,103.0,"63×54×43 cm"],"20389046492":[8.5,75.0,"0×0×0 cm"],"20236006343":[6.55,75.0,"56×46×36 cm"],"20194222671":[0.7,29.0,"30×20×1 cm"],"20088695329":[6.99,75.0,"40×40×40 cm"],"19783495553":[1.75,35.0,"35×27×33 cm"],"19689052687":[6.49,75.0,"0×0×0 cm"],"19592442976":[2.0,35.0,"35×27×33 cm"],"19579740834":[2.85,42.0,"50×39×33 cm"],"18975954929":[10.5,103.0,"48×42×48 cm"],"18079761858":[5.4,75.0,"59×43×28 cm"],"17934301031":[7.0,75.0,"49×27×48 cm"],"17568884459":[3.5,55.0,"35×27×33 cm"],"17534300233":[3.0,42.0,"0×0×0 cm"],"17486654805":[0.7,29.0,"20×25×30 cm"],"17466782220":[1.7,35.0,"35×27×30 cm"],"17386564891":[0.25,29.0,"25×20×20 cm"],"16097555344":[7.5,75.0,"50×36×50 cm"],"15678592401":[7.8,75.0,"48×42×48 cm"],"15597449663":[6.55,75.0,"46×56×36 cm"],"15122139100":[14.5,113.0,"64×54×44 cm"],"15119591481":[1.5,35.0,"35×27×33 cm"],"14849991461":[1.7,35.0,"35×26×32 cm"],"14811864347":[8.55,75.0,"71×54×42 cm"],"14698060573":[2.4,42.0,"43×29×27 cm"],"14033203142":[23.9,0,"53×64×60 cm"],"13809432551":[0.8,29.0,"15×37×13 cm"],"13609417198":[1.7,35.0,"35×27×33 cm"],"13390873644":[9.6,75.0,"61×42×36 cm"],"13361039825":[1.9,35.0,"0×0×0 cm"],"13081290437":[12.5,113.0,"53×54×51 cm"],"12927932769":[0.7,29.0,"22×27×19 cm"],"12257314946":[7.8,75.0,"59×54×28 cm"],"12121916320":[2.0,35.0,"35×28×32 cm"],"11906075571":[1.1,35.0,"25×20×20 cm"],"11755773927":[7.5,75.0,"59×57×28 cm"],"11748641296":[1.5,35.0,"25×24×30 cm"],"11597512113":[2.5,42.0,"35×26×33 cm"],"11511764893":[0.85,29.0,"35×27×33 cm"],"11510850077":[2.5,42.0,"0×0×0 cm"],"11410535879":[2.5,42.0,"35×27×33 cm"],"11260160542":[9.2,75.0,"49×42×47 cm"],"10710848583":[2.0,35.0,"35×27×33 cm"],"10211779794":[2.35,42.0,"0×0×0 cm"],"10207752535":[3.0,42.0,"35×27×33 cm"],"9467603605":[10.0,75.0,"63×45×64 cm"],"9427430061":[4.0,55.0,"0×0×0 cm"],"9266028983":[2.5,42.0,"35×27×33 cm"],"9166018355":[1.5,35.0,"0×0×0 cm"],"9066027711":[2.5,42.0,"35×27×33 cm"],"8979260172":[3.0,42.0,"35×27×33 cm"],"8868378053":[10.3,103.0,"59×36×45 cm"],"8661047227":[3.5,55.0,"48×23×34 cm"],"8617544941":[0.7,29.0,"28×20×13 cm"],"8502208205":[15.0,113.0,"55×38×77 cm"],"8400512103":[0.75,29.0,"30×20×30 cm"],"7917922915":[8.6,75.0,"32×61×43 cm"],"7895182867":[3.0,42.0,"0×0×0 cm"],"7777645408":[13.5,113.0,"64×54×43 cm"],"7740568280":[5.0,55.0,"35×27×33 cm"],"7718570169":[0.9,29.0,"20×20×10 cm"],"7678599258":[1.2,35.0,"30×29×40 cm"],"7565928135":[0.7,29.0,"10×10×10 cm"],"7536913176":[2.2,42.0,"37×31×31 cm"],"7535816112":[9.8,75.0,"50×50×67 cm"],"7514074635":[6.9,75.0,"65×42×33 cm"],"7510094307":[7.5,75.0,"47×38×60 cm"],"7436715621":[10.8,103.0,"58×43×58 cm"],"7424361378":[1.2,35.0,"41×27×18 cm"],"7346845065":[2.6,42.0,"35×27×33 cm"],"7124362436":[12.8,113.0,"65×54×43 cm"],"7115365988":[8.0,75.0,"65×54×43 cm"],"7091553639":[1.5,35.0,"0×0×0 cm"],"6923365812":[12.0,113.0,"63×53×59 cm"],"6869758638":[8.0,75.0,"63×50×34 cm"],"6839693352":[3.8,55.0,"35×27×33 cm"],"6817288496":[0.49,29.0,"20×20×25 cm"],"6808209398":[1.5,35.0,"35×27×33 cm"],"6780606891":[3.0,42.0,"0×0×0 cm"],"6717861520":[2.5,42.0,"63×27×51 cm"],"6707544701":[2.0,35.0,"0×0×0 cm"],"6667217572":[12.5,113.0,"51×52×38 cm"],"6644988407":[1.0,29.0,"35×27×17 cm"],"6639999063":[1.5,35.0,"35×27×33 cm"],"6591580409":[1.5,35.0,"35×27×33 cm"],"6524360370":[1.5,35.0,"39×27×22 cm"],"6336913339":[0.9,29.0,"36×23×17 cm"],"6317917384":[7.5,75.0,"42×43×42 cm"],"6217766366":[4.0,55.0,"0×0×0 cm"],"6108771353":[11.5,113.0,"50×50×40 cm"],"6064846557":[1.6,35.0,"35×27×33 cm"],"5989708852":[0.6,29.0,"10×10×10 cm"],"5981073447":[8.3,75.0,"45×47×34 cm"],"5952876258":[4.5,55.0,"49×41×40 cm"],"5925545355":[7.5,75.0,"50×36×50 cm"],"5908199344":[7.2,75.0,"39×39×33 cm"],"5891954349":[1.5,35.0,"39×27×22 cm"],"5825541840":[1.4,35.0,"28×17×28 cm"],"5736713322":[6.5,75.0,"42×44×45 cm"],"5715367544":[7.25,75.0,"42×44×45 cm"],"5337147984":[1.8,35.0,"34×27×30 cm"],"5314631485":[15.0,113.0,"77×50×43 cm"],"5208781320":[8.2,75.0,"55×30×43 cm"],"5001843522":[1.75,35.0,"34×27×30 cm"],"4840817562":[2.65,42.0,"38×30×39 cm"],"4806128877":[1.5,35.0,"35×27×34 cm"],"4708674191":[8.6,75.0,"50×40×35 cm"],"4701840724":[1.8,35.0,"34×27×30 cm"],"4644964957":[0.55,29.0,"20×22×10 cm"],"4639999986":[1.35,35.0,"41×28×21 cm"],"4339703879":[2.0,35.0,"48×22×33 cm"],"4306660307":[12.0,113.0,"63×52×41 cm"],"4217288302":[0.8,29.0,"23×24×15 cm"],"4091964562":[1.3,35.0,"0×0×0 cm"],"4039507989":[1.6,35.0,"35×27×32 cm"],"3939793460":[1.5,35.0,"39×25×19 cm"],"3936335263":[3.0,42.0,"0×0×0 cm"],"3920602038":[12.0,113.0,"50×37×79 cm"],"3723459269":[6.8,75.0,"64×50×35 cm"],"3707638390":[2.0,35.0,"35×27×33 cm"],"3310241296":[13.5,113.0,"66×56×54 cm"],"3235991047":[7.7,75.0,"40×40×63 cm"],"3234175995":[0.95,29.0,"23×20×10 cm"],"3210303850":[1.85,35.0,"43×29×28 cm"],"3206860521":[8.25,75.0,"58×42×48 cm"],"3090302239":[2.5,42.0,"51×23×56 cm"],"2906154043":[9.8,75.0,"54×54×42 cm"],"2906118558":[4.5,55.0,"45×39×30 cm"],"2906076913":[2.4,42.0,"42×29×27 cm"],"2653854633":[3.5,55.0,"30×30×30 cm"],"2653850896":[2.6,42.0,"52×29×43 cm"],"2653846170":[1.8,35.0,"35×33×33 cm"],"2653836820":[2.0,35.0,"34×27×32 cm"],"2630167771":[2.0,35.0,"42×29×27 cm"],"2630149105":[6.5,75.0,"45×45×35 cm"],"2630133023":[1.25,35.0,"39×27×22 cm"],"2442495791":[3.0,42.0,"30×30×30 cm"],"2442336354":[1.8,35.0,"44×30×27 cm"],"2403964180":[2.0,35.0,"30×30×30 cm"],"2402452458":[7.5,75.0,"55×40×56 cm"],"2402418364":[0.7,29.0,"20×20×20 cm"],"2379470785":[10.4,103.0,"63×45×64 cm"],"2376328766":[3.0,42.0,"31×25×20 cm"],"2376299562":[3.0,42.0,"30×30×30 cm"],"2343056496":[4.0,55.0,"35×27×33 cm"],"2343050736":[4.0,55.0,"35×27×33 cm"],"2343000496":[2.75,42.0,"32×28×33 cm"],"2342880897":[6.0,75.0,"49×27×36 cm"],"2342865264":[18.0,195.0,"0×0×0 cm"],"2342361858":[1.65,35.0,"30×30×30 cm"],"2337621584":[2.85,42.0,"41×31×30 cm"],"2337274932":[2.7,42.0,"44×29×23 cm"],"2337255158":[1.8,35.0,"36×27×31 cm"],"2319824326":[2.8,42.0,"49×27×26 cm"],"2299056986":[4.85,55.0,"50×38×33 cm"],"2297331359":[2.8,42.0,"35×27×33 cm"],"2297309857":[2.0,35.0,"35×27×33 cm"],"2297274678":[1.7,35.0,"35×27×33 cm"],"2297265859":[1.25,35.0,"37×29×21 cm"],"2297168521":[1.3,35.0,"31×22×24 cm"],"2297161304":[1.2,35.0,"33×27×15 cm"],"2297154725":[1.0,29.0,"33×28×16 cm"],"2297131810":[2.6,42.0,"43×26×23 cm"],"2284018939":[0.8,29.0,"20×20×10 cm"],"2284006342":[0.8,29.0,"29×25×25 cm"],"2283994956":[0.7,29.0,"27×25×29 cm"],"2283985577":[0.4,29.0,"20×25×25 cm"],"2283969207":[0.2,29.0,"20×20×10 cm"],"2139080613":[2.0,35.0,"39×27×29 cm"],"2139052279":[1.5,35.0,"35×27×33 cm"],"2138969831":[1.7,35.0,"0×0×0 cm"],"2138904265":[2.4,42.0,"0×0×0 cm"],"2082242139":[1.35,35.0,"43×28×20 cm"],"2015557356":[1.7,35.0,"35×28×31 cm"],"2015357531":[2.33,42.0,"43×29×27 cm"],"2015340869":[2.0,35.0,"35×27×33 cm"],"1995232315":[1.8,35.0,"34×26×30 cm"],"1995221125":[3.85,55.0,"42×30×27 cm"],"1955576566":[7.45,75.0,"64×37×48 cm"],"1874264214":[7.4,75.0,"57×31×51 cm"],"1874253256":[1.7,35.0,"28×26×24 cm"],"1865607097":[4.0,55.0,"35×27×33 cm"],"1865419085":[2.2,42.0,"40×27×23 cm"],"1865405185":[8.5,75.0,"50×36×53 cm"],"1865386126":[2.3,42.0,"37×29×33 cm"],"1810297417":[2.0,35.0,"0×0×0 cm"],"1763177231":[4.0,55.0,"0×0×0 cm"],"1763134763":[3.0,42.0,"0×0×0 cm"],"1675846553":[16.9,195.0,"64×54×45 cm"],"1675833805":[14.8,113.0,"64×54×44 cm"],"1675790681":[10.8,103.0,"63×54×43 cm"],"1674299370":[2.3,42.0,"40×27×24 cm"],"1671577831":[13.0,113.0,"0×0×0 cm"],"1671569200":[13.0,113.0,"54×55×60 cm"],"1671354769":[13.0,113.0,"0×0×0 cm"],"1671115383":[1.0,29.0,"35×27×17 cm"],"1671038582":[1.8,35.0,"35×27×33 cm"],"1671030345":[2.0,35.0,"35×27×33 cm"],"1663318394":[3.3,55.0,"43×29×27 cm"],"1550967688":[2.3,42.0,"35×27×33 cm"],"1550914318":[10.5,103.0,"65×42×43 cm"],"1550868703":[1.5,35.0,"39×27×22 cm"],"1550748958":[3.0,42.0,"42×30×27 cm"],"1550709167":[2.5,42.0,"43×29×27 cm"],"1550687759":[4.5,55.0,"43×35×49 cm"],"1550642668":[3.6,55.0,"49×30×33 cm"],"1550613737":[7.7,75.0,"55×48×36 cm"],"1550493284":[14.0,113.0,"0×0×0 cm"],"1550364533":[15.0,113.0,"0×0×0 cm"],"1550295007":[7.0,75.0,"45×45×45 cm"],"1550281358":[7.0,75.0,"0×0×0 cm"],"1550220759":[7.0,75.0,"0×0×0 cm"],"1550209782":[7.0,75.0,"45×50×50 cm"],"1550135710":[7.0,75.0,"0×0×0 cm"]};
+
+  const SHIP_TABLE_DEFAULT = [
+    { max: 1,  fee: 29 },
+    { max: 2,  fee: 35 },
+    { max: 3,  fee: 42 },
+    { max: 5,  fee: 55 },
+    { max: 10, fee: 75 },
+    { max: 11, fee: 103 },
+    { max: 15, fee: 113 },
+    { max: 20, fee: 195 },
+  ];
+  const SHIP_OVER_BASE = 195;   // เกิน 20kg เริ่มที่เท่านี้
+  const SHIP_OVER_STEP = 60;    // แล้วบวกทุกๆ 5kg
+  const SHIP_OVER_KG   = 5;
+
+  function shipTable() {
+    const t = S.shipTable;
+    return (Array.isArray(t) && t.length) ? t : SHIP_TABLE_DEFAULT;
+  }
+
+  // น้ำหนักรวมตะกร้า (kg) — สินค้าที่ไม่ได้กรอกน้ำหนักคิดเป็น 1kg กันตกหล่น
+  function cartWeight() {
+    return S.cart.reduce((sum, i) => {
+      const p = EP.find(x => x.id === i.pid);
+      const w = Number(p && p.weight) || 1;
+      return sum + w * (Number(i.qty) || 0);
+    }, 0);
+  }
+
+  function shippingFeeForWeight(kg) {
+    const w = Number(kg) || 0;
+    if (w <= 0) return 0;
+    const tbl = shipTable();
+    for (const b of tbl) { if (w <= Number(b.max)) return Number(b.fee); }
+    const last = tbl[tbl.length - 1];
+    const over = w - Number(last.max);
+    return SHIP_OVER_BASE + SHIP_OVER_STEP * Math.ceil(over / SHIP_OVER_KG);
+  }
+
   function shippingFee() {
-    if (cartSubtotal() >= 1500) return 0;
-    return S.coShipping === "flash" ? 55 : (S.coShipping === "pickup" ? 0 : 0);
+    if (S.coShipping === "pickup") return 0;   // รับเอง = ไม่มีค่าส่ง
+    return shippingFeeForWeight(cartWeight());
   }
   // CSV Export
   function exportCsv(filename, rows) {
@@ -1875,6 +2008,12 @@
   function render() {
     EP = getEffectiveProducts();
     const r = currentRoute();
+    // ลูกน้องพิมพ์ URL ตรงเข้าหน้าที่ไม่มีสิทธิ์ → เด้งกลับ dashboard
+    if (!routeAllowed(r)) {
+      setTimeout(() => { denyStaff('เข้าหน้านี้'); go('/admin'); }, 10);
+      $("app").innerHTML = '';
+      return;
+    }
     let content = "";
     if (r === "/" || r.startsWith("/?")) content = viewHome();
     else if (r.startsWith("/cat/")) content = viewCategory(r.split("/")[2]);
@@ -1955,15 +2094,17 @@
             </div>
             ${isAdmin() ? `
               <a class="ud-item" onclick="hideDropdown();go('/admin')">📊 Dashboard</a>
-              <a class="ud-item" onclick="hideDropdown();go('/admin/products')">📦 จัดการสินค้า</a>
-              <a class="ud-item" onclick="hideDropdown();go('/admin/orders')">📋 จัดการคำสั่งซื้อ</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/create-bill')">🧾 เปิดบิลใหม่ (Manual)</a>
-              <a class="ud-item" onclick="hideDropdown();go('/admin/new')">➕ เพิ่มสินค้าใหม่</a>
+              <a class="ud-item" onclick="hideDropdown();go('/admin/bills')">📑 บิลทั้งหมด</a>
+              <a class="ud-item" onclick="hideDropdown();go('/admin/products')">📦 ${isOwner()?'จัดการสินค้า':'ดูสินค้า'}</a>
+              <a class="ud-item" onclick="hideDropdown();go('/admin/orders')">📋 ${isOwner()?'จัดการคำสั่งซื้อ':'ดูคำสั่งซื้อ'}</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/customers')">👥 ลูกค้า</a>
+              ${ownerOnly(`
+              <a class="ud-item" onclick="hideDropdown();go('/admin/new')">➕ เพิ่มสินค้าใหม่</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/tiktok')">🎬 ลงคลิป TikTok</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/coupons')">🎁 คูปอง</a>
               <a class="ud-item" onclick="hideDropdown();go('/admin/settings')">⚙️ ตั้งค่าร้าน</a>
-              <a class="ud-item" onclick="hideDropdown();go('/admin/manage')">🔐 จัดการแอดมิน</a>
+              <a class="ud-item" onclick="hideDropdown();go('/admin/manage')">🔐 จัดการแอดมิน</a>`)}
               <div class="ud-divider"></div>
             ` : ''}
             <a class="ud-item" onclick="hideDropdown();go('/orders')">📋 คำสั่งซื้อของฉัน</a>
@@ -2004,18 +2145,20 @@
         <span style="font-size:14px">🔧</span>
         <b>Admin Mode</b>
         <span style="opacity:.7">·</span>
+        ${isOwner()?'':`<span style="background:#7A1929;color:#fff;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:700">👤 ${esc(S.adminName||'ลูกน้อง')} · เปิดบิลได้</span>`}
         <a onclick="go('/admin')">Dashboard</a>
         <a onclick="go('/admin/products')">สินค้า (${EP.length})</a>
         <a onclick="go('/admin/orders')">📋 PO (${(S.sheetOrders||S.orders||[]).length})</a>
         <a onclick="go('/admin/bills')">🧾 บิล (${((S.sheetBills||{}).cash||[]).length + ((S.sheetBills||{}).tax||[]).length})</a>
         <a onclick="go('/admin/customers')">👥 ลูกค้า (${(S.sheetCustomers||S.registeredUsers||[]).length})</a>
+        ${ownerOnly(`
         <a onclick="go('/admin/coupons')">🎁 คูปอง (${(S.sheetCoupons||[]).length})</a>
         <a onclick="go('/admin/tiktok')">🎬 ลงคลิป TikTok (${(S.tiktokVideos||[]).length})</a>
         <a onclick="go('/admin/promos')">📢 โปรโมชั่น</a>
         <a onclick="go('/admin/settings')">⚙️ ตั้งค่า</a>
-        <a onclick="go('/admin/manage')">🔐 จัดการแอดมิน</a>
+        <a onclick="go('/admin/manage')">🔐 จัดการแอดมิน</a>`)}
         <a onclick="go('/admin/create-bill')" style="background:rgba(0,0,0,.12);padding:3px 8px;border-radius:4px">➕ เปิดบิลใหม่</a>
-        <a onclick="go('/admin/new')">➕ เพิ่มสินค้า</a>
+        ${ownerOnly(`<a onclick="go('/admin/new')">➕ เพิ่มสินค้า</a>`)}
         <span style="margin-left:auto;opacity:.75;font-size:11px">${S.user.name || 'Admin'}</span>
       </div>
     `;
@@ -2331,7 +2474,7 @@
         <div class="hero-main">
           <div class="hero-eyebrow" style="color:var(--brand)">THE FOOD BOX ASIA · Food Packaging</div>
           <h1 class="hero-title">บรรจุภัณฑ์อาหาร<br><span style="color:var(--brand)">ครบวงจร ราคาโรงงาน</span></h1>
-          <p class="hero-sub">กล่องอาหารกระดาษ · แก้วคราฟท์ · ถ้วยซุป · กระปุก · ช้อนส้อม — ส่งฟรีเมื่อครบ ฿1,500</p>
+          <p class="hero-sub">กล่องอาหารกระดาษ · แก้วคราฟท์ · ถ้วยซุป · กระปุก · ช้อนส้อม — ค่าส่งตามน้ำหนักจริง เริ่ม ฿29</p>
           <button class="hero-cta" onclick="go('/cat/foodbox')">ดูกล่องอาหาร →</button>
         </div>
         <div class="hero-side">
@@ -2455,7 +2598,7 @@
           </div>
 
           <div class="pd-guarantees">
-            <div>🚚 ส่งฟรีเมื่อครบ ฿1,500</div>
+            <div>🚚 ค่าส่งตามน้ำหนักจริง เริ่ม ฿29</div>
             <div>📄 ออกใบกำกับภาษีได้</div>
             <div>💳 พร้อมเพย์ / โอนธนาคาร</div>
             <div>↩️ คืนได้ภายใน 7 วัน</div>
@@ -2510,7 +2653,7 @@
             <div class="pd-ship-card">
               <div style="font-size:22px">📦</div>
               <div><b>Kerry Express</b><div style="font-size:11px;color:var(--text-muted)">1-2 วันทำการ</div></div>
-              <div class="mono" style="color:var(--success);font-weight:700">ฟรี ครบ ฿1,500</div>
+              <div class="mono" style="font-weight:700">เริ่ม ฿29</div>
             </div>
             <div class="pd-ship-card">
               <div style="font-size:22px">⚡</div>
@@ -2527,7 +2670,7 @@
             📦 <b>น้ำหนัก:</b> ${p.weight} kg/แพ็ค · <b>ขนาด:</b> ${p.dimensions || '-'} · <b>ค่าส่งประมาณ:</b> <span style="color:var(--brand);font-weight:700">฿${p.shipEst || 55}</span> (Kerry)
           </div>` : ''}
           <div style="font-size:12px;color:var(--text-muted);margin-top:10px;padding:10px 12px;background:var(--surface-warm);border-radius:6px">
-            💡 <b>เคล็ดลับ:</b> สั่งครบ ฿1,500 ได้ส่งฟรี Kerry Express · สั่งเป็น lot 5,000+ แพ็ค ติดต่อผ่าน LINE เพื่อขอราคาโรงงานพิเศษ
+            💡 <b>เคล็ดลับ:</b> ค่าส่งคิดตามน้ำหนักรวม ยิ่งสั่งรวมกันทีเดียวยิ่งคุ้มกว่าแยกหลายรอบ · สั่งเป็น lot 5,000+ แพ็ค ติดต่อผ่าน LINE เพื่อขอราคาโรงงานพิเศษ
           </div>
         </section>
 
@@ -2556,7 +2699,6 @@
           <div class="pd-pay-grid">
             <div class="pd-pay-item"><span>📱</span> QR PromptPay</div>
             <div class="pd-pay-item"><span>🏦</span> โอนธนาคาร (KBank, SCB, BBL)</div>
-            <div class="pd-pay-item"><span>📦</span> เก็บเงินปลายทาง (COD)</div>
             <div class="pd-pay-item"><span>💳</span> บัตรเครดิต/เดบิต</div>
           </div>
         </section>
@@ -2749,13 +2891,13 @@
             <div class="radio-list">
               <div class="radio-opt ${S.coShipping==='kerry'?'on':''}" onclick="S.coShipping='kerry';render()">
                 <span class="radio-dot"></span>
-                <div><div class="radio-title">Kerry Express</div><div class="radio-sub">1-2 วันทำการ · รับพรุ่งนี้</div></div>
-                <div class="radio-p ${sub>=1500?'free':''}">${sub>=1500?'ฟรี':money(0)}</div>
+                <div><div class="radio-title">Kerry Express</div><div class="radio-sub">1-2 วันทำการ · น้ำหนักรวม ${cartWeight().toFixed(2)} kg</div></div>
+                <div class="radio-p">${money(shippingFeeForWeight(cartWeight()))}</div>
               </div>
               <div class="radio-opt ${S.coShipping==='flash'?'on':''}" onclick="S.coShipping='flash';render()">
                 <span class="radio-dot"></span>
-                <div><div class="radio-title">Flash Express</div><div class="radio-sub">2-3 วันทำการ</div></div>
-                <div class="radio-p ${sub>=1500?'free':''}">${sub>=1500?'ฟรี':'฿55'}</div>
+                <div><div class="radio-title">Flash Express</div><div class="radio-sub">2-3 วันทำการ · น้ำหนักรวม ${cartWeight().toFixed(2)} kg</div></div>
+                <div class="radio-p">${money(shippingFeeForWeight(cartWeight()))}</div>
               </div>
               <div class="radio-opt ${S.coShipping==='pickup'?'on':''}" onclick="S.coShipping='pickup';render()">
                 <span class="radio-dot"></span>
@@ -2776,11 +2918,6 @@
               <div class="radio-opt ${S.coPayment==='bank'?'on':''}" onclick="S.coPayment='bank';render()">
                 <span class="radio-dot"></span>
                 <div><div class="radio-title">🏦 โอนเงินธนาคาร</div><div class="radio-sub">KBank · SCB · Bangkok Bank</div></div>
-                <div class="radio-p"></div>
-              </div>
-              <div class="radio-opt ${S.coPayment==='cod'?'on':''}" onclick="S.coPayment='cod';render()">
-                <span class="radio-dot"></span>
-                <div><div class="radio-title">📦 เก็บเงินปลายทาง (COD)</div><div class="radio-sub">จ่ายตอนรับสินค้า</div></div>
                 <div class="radio-p"></div>
               </div>
               <div class="radio-opt ${S.coPayment==='card'?'on':''}" onclick="S.coPayment='card';render()">
@@ -2857,7 +2994,7 @@
     }
     const order = {
       po: poNo,
-      status: S.coPayment === "cod" ? "paid" : "pending_payment",
+      status: "pending_payment",   // ทุกออเดอร์ต้องโอนเงิน + แนบสลิปก่อนเสมอ
       total: tot,
       subtotal: sub,
       discount: disc,
@@ -2901,10 +3038,10 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 55;
+  const APP_VERSION = 61;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
-  const NEED_BACKEND = 43;
+  const NEED_BACKEND = 45;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -3536,43 +3673,72 @@
   }
 
   async function loginAsAdminAsync(u, p) {
-    // ลำดับตรวจ: Sheet (ถ้าเชื่อมได้) → localStorage → ค่าเริ่มต้น
+    const hash = await sha256(p);
+
+    // 1) บัญชีในระบบหลายผู้ใช้ (tab admin_users) — รองรับลูกน้อง
+    if (S.sheetApiUrl) {
+      try {
+        const res = await apiCall("getAdminUser", { username: u }, true);
+        const acc = res && res.ok && res.user;
+        if (acc && acc.disabled) { toast("บัญชีนี้ถูกปิดใช้งาน — ติดต่อเจ้าของร้าน"); return; }
+        if (acc && acc.passHash) {
+          if (acc.passHash !== hash) { toast("username หรือ password ไม่ถูกต้อง"); return; }
+          enterAdmin(acc.username, acc.role || 'staff', acc.displayName || acc.username);
+          return;
+        }
+      } catch (e) {
+        console.warn("[admin] อ่าน admin_users ไม่ได้ — ลองวิธีเดิม", e);
+      }
+    }
+
+    // 2) บัญชีเจ้าของเดิม (tab admin) — ยังใช้ได้เหมือนเดิม
     let creds = null;
     if (S.sheetApiUrl) {
       try {
         const res = await apiCall("getAdmin", {}, true);
         if (res && res.ok && res.admin && res.admin.passHash) {
           creds = res.admin;
-          // cache ไว้ใช้ตอน offline
           S.adminUser = creds.user; S.adminPassHash = creds.passHash; saveState();
         }
       } catch (e) { console.warn("[admin] อ่านจาก Sheet ไม่ได้ ใช้ค่าในเครื่องแทน"); }
     }
     if (!creds && S.adminPassHash) creds = { user: S.adminUser, passHash: S.adminPassHash };
 
-    let pass = false;
     if (creds) {
-      pass = (u === creds.user) && ((await sha256(p)) === creds.passHash);
-    } else {
-      // ยังไม่เคยตั้งรหัสเอง → ใช้ค่าเริ่มต้น
-      pass = (u === ADMIN_USERNAME && p === ADMIN_PASSWORD);
+      if (u === creds.user && hash === creds.passHash) {
+        enterAdmin(creds.user, 'owner', 'เจ้าของร้าน');
+      } else {
+        toast("username หรือ password ไม่ถูกต้อง");
+      }
+      return;
     }
 
-    if (pass) {
-      S.user = { role: 'admin', name: 'Admin', email: 'iamplastic2026@gmail.com' };
-      saveState();
-      toast("เข้าสู่ระบบ Admin สำเร็จ ✓");
-      if (!creds) setTimeout(() => toast("⚠️ ยังใช้รหัสเริ่มต้น — ควรเปลี่ยนที่ ตั้งค่าแอดมิน"), 1800);
-      go('/admin');
+    // 3) ยังไม่เคยตั้งรหัสเอง → ค่าเริ่มต้น
+    if (u === ADMIN_USERNAME && p === ADMIN_PASSWORD) {
+      enterAdmin(u, 'owner', 'เจ้าของร้าน');
+      setTimeout(() => toast("⚠️ ยังใช้รหัสเริ่มต้น — ควรเปลี่ยนที่ จัดการแอดมิน"), 1800);
     } else {
       toast("username หรือ password ไม่ถูกต้อง");
     }
+  }
+
+  function enterAdmin(username, role, displayName) {
+    S.adminRole = (role === 'owner') ? 'owner' : 'staff';
+    S.adminName = displayName || username;
+    S.user = { role: 'admin', name: S.adminName, email: '' };
+    saveState();
+    toast(isOwner()
+      ? `เข้าสู่ระบบสำเร็จ ✓ · ${esc(S.adminName)}`
+      : `เข้าสู่ระบบสำเร็จ ✓ · ${esc(S.adminName)} (ลูกน้อง — เปิดบิลได้)`);
+    go('/admin');
   }
 
   function doLogout() {
     hideDropdown();
     S.user = null;
     S.adminAuth = false;
+    S.adminRole = 'owner';
+    S.adminName = '';
     saveState();
     toast("ออกจากระบบแล้ว");
     go('/');
@@ -3583,6 +3749,7 @@
     el.style.display = el.style.display === "none" ? "block" : "none";
   }
   function saveSheetSettings() {
+    if (!can('settings')) { denyStaff('แก้ไขการเชื่อมต่อ'); return; }
     setApiOverride(
       document.getElementById("sheet-url").value.trim(),
       document.getElementById("sheet-token").value.trim()
@@ -3671,6 +3838,75 @@
     syncMyAccountToSheet().catch(()=>{});
   }
 
+  // วิธี deploy แบบกดดูได้ทันที — เดิมซ่อนอยู่ใต้ผลตรวจสอบที่ต้องรอ 30 วินาที
+  // และลิงก์ "ดูวิธีทำ" ชี้กลับมาหน้าเดิมที่ยืนอยู่ เลยเหมือนกดแล้วไม่มีอะไรเกิดขึ้น
+  function showDeployHelp() {
+    const cur = S._backendVer;
+    setDiag(`
+      <div style="background:#fff;border:2px solid var(--brand);border-radius:10px;padding:18px;margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;margin-bottom:4px">
+          <h3 style="margin:0;font-size:17px">วิธี deploy Code.gs v${NEED_BACKEND}</h3>
+          <button class="btn btn-outline" style="font-size:11px;padding:3px 10px" onclick="setDiag('')">ปิด</button>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px;font-family:monospace">
+          ตอนนี้ deploy อยู่: <b style="color:#DC2626">v${cur || '?'}</b> → ต้องการ <b style="color:#0B7A3E">v${NEED_BACKEND}</b>
+        </div>
+
+        <div style="background:#f6f6f6;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12.5px;line-height:1.75;color:var(--text-muted)">
+          <b style="color:var(--text)">ทำไมกด Ctrl+S แล้วยังไม่พอ</b><br>
+          Apps Script แยก "โค้ดที่คุณแก้" ออกจาก "โค้ดที่ URL ให้บริการ" คนละส่วนกัน<br>
+          Ctrl+S บันทึกถึงแค่ส่วนแรก · การกด Deploy คือการก๊อปไปส่วนที่สอง
+        </div>
+
+        ${[
+          ['เปิด Apps Script <b>จากใน Google Sheet ของร้าน</b>',
+           'เปิดไฟล์ Sheet → เมนู <b>ส่วนขยาย (Extensions)</b> → <b>Apps Script</b>',
+           '🚨 <b>จุดที่พลาดกันมากที่สุด</b> — ถ้าแท็บเบราว์เซอร์ขึ้นว่า <b>"โครงการไม่มีชื่อ"</b> แปลว่ากำลังอยู่ในโปรเจกต์ใหม่ที่ไม่ได้ผูกกับ Sheet ร้าน แก้ตรงนั้นไปเท่าไหร่ก็ไม่มีผล เพราะ deployment จริงอยู่คนละโปรเจกต์ · ให้ปิดแท็บนั้นทิ้ง แล้วเข้าใหม่จาก Sheet'],
+          ['วางโค้ดใหม่ทับของเดิม',
+           'คลิกในช่องโค้ด → <b>Ctrl+A</b> → <b>Delete</b> → วาง Code.gs → <b>Ctrl+S</b>',
+           'อย่าวางต่อท้ายของเดิม จะได้ฟังก์ชันชื่อซ้ำกันสองชุด'],
+          ['เช็คว่าวางถูกไฟล์',
+           'ต้องเห็นบรรทัด <code style="background:#eee;padding:1px 5px;border-radius:3px">const BACKEND_VERSION = ' + NEED_BACKEND + ';</code>',
+           ''],
+          ['กดปุ่มสีน้ำเงินมุมขวาบน <b>"การทำให้ใช้งานได้ ▾"</b>',
+           'ปุ่มนี้คือ Deploy · ถ้าเป็นภาษาอังกฤษจะเขียนว่า <b>Deploy</b>',
+           ''],
+          ['เลือก <b>"จัดการการทำให้ใช้งานได้"</b>',
+           'ภาษาอังกฤษคือ <b>Manage deployments</b>',
+           '❌ <b>ห้ามเลือก "การทำให้ใช้งานได้ใหม่" (New deployment)</b> — อันนั้นสร้าง URL ใหม่คนละอัน ส่วน URL ที่เว็บยิงไปจะยังเสิร์ฟโค้ดเก่าต่อไปเรื่อยๆ'],
+          ['กด <b>✏️ ดินสอ</b> → ช่องเวอร์ชันเลือก <b>"เวอร์ชันใหม่" (New version)</b> → กด <b>Deploy</b>',
+           'ดินสออยู่มุมขวาบนของกล่อง deployment',
+           ''],
+          ['รอ 10 วินาที แล้วกด 🔬 ตรวจสอบระบบ',
+           'ต้องขึ้น <b>v' + NEED_BACKEND + '</b> และ ✅ ครบ 9 ข้อ',
+           ''],
+        ].map((st, i) => `
+          <div style="display:grid;grid-template-columns:26px 1fr;gap:12px;padding:12px 0;border-top:1px solid var(--border)">
+            <div style="font-family:monospace;font-weight:700;color:var(--brand);font-size:14px">${i+1}</div>
+            <div>
+              <div style="font-size:14px;font-weight:600;line-height:1.6">${st[0]}</div>
+              ${st[1] ? `<div style="font-size:12.5px;color:var(--text-muted);margin-top:2px;line-height:1.65">${st[1]}</div>` : ''}
+              ${st[2] ? `<div style="background:#fdf6e7;border-left:3px solid #f59e0b;padding:8px 11px;margin-top:8px;border-radius:0 5px 5px 0;font-size:12px;color:#92400e;line-height:1.65">${st[2]}</div>` : ''}
+            </div>
+          </div>`).join('')}
+
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);line-height:1.7">
+          <b>ถ้า deploy แล้วยังขึ้น v${cur || '41'} อยู่</b> — แปลว่าแก้ผิดโปรเจกต์
+          หรือไปกด "การทำให้ใช้งานได้ใหม่" เข้า<br>
+          วิธีเช็คว่าอยู่ถูกโปรเจกต์: ในหน้า Apps Script เลือกฟังก์ชัน
+          <code style="background:#eee;padding:1px 5px;border-radius:3px">whichSheet</code>
+          จากช่อง dropdown บนแถบเครื่องมือ แล้วกด <b>▶ เรียกใช้</b> —
+          ต้องขึ้นชื่อไฟล์ Sheet ของร้าน ถ้าขึ้นว่าไม่ได้ผูกกับ Spreadsheet ใดเลย = ผิดโปรเจกต์<br><br>
+          ให้กลับไปที่ <b>จัดการการทำให้ใช้งานได้</b> แล้วแก้ deployment <b>ตัวที่มี URL ลงท้ายด้วย
+          <code style="background:#eee;padding:1px 5px;border-radius:3px">${esc((liveSheetConfig().url.match(/\/s\/([^\/]+)\//)||[,''])[1].slice(-10))}</code></b> แทน
+        </div>
+      </div>`);
+    setTimeout(() => {
+      const el = document.getElementById('backend-check');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  }
+
   // เช็คเวอร์ชัน backend เงียบๆ ตอนเปิดหน้าแอดมิน — จะได้ไม่ต้องรอให้กด "ตรวจสอบระบบ" ถึงจะรู้
   async function checkBackendVersion() {
     if (!S.sheetApiUrl) return;
@@ -3683,13 +3919,15 @@
 
   function adminPageHeader(title, icon, extra = '') {
     if (S._backendVer === undefined && S.sheetApiUrl) { S._backendVer = null; checkBackendVersion(); }
-    const stale = S._backendVer && S._backendVer < NEED_BACKEND;
+    // หน้าตั้งค่ามีรายละเอียดเต็มอยู่แล้ว ไม่ต้องเตือนซ้ำอีกแถบ
+    const onSettings = location.hash.indexOf('/admin/settings') >= 0;
+    const stale = S._backendVer && S._backendVer < NEED_BACKEND && !onSettings;
     return `
       ${stale ? `
         <div style="background:#fde8e8;border:2px solid #DC2626;padding:12px 14px;border-radius:10px;margin-bottom:14px;font-size:13px;color:#b02a2a;line-height:1.7">
           🚨 <b>Apps Script ยังเป็น v${S._backendVer} — ต้อง deploy v${NEED_BACKEND}</b><br>
           ลูกค้าที่ไม่มีชื่อจะไม่โผล่ในรายชื่อ และหน้าเว็บโหลดช้ากว่าที่ควร จนกว่าจะ deploy
-          <a onclick="go('/admin/settings')" style="color:#DC2626;cursor:pointer;font-weight:800;text-decoration:underline;margin-left:6px">→ ดูวิธีทำ</a>
+          <a onclick="${location.hash.indexOf('/admin/settings')>=0 ? 'showDeployHelp()' : `go('/admin/settings');setTimeout(showDeployHelp,100)`}" style="color:#DC2626;cursor:pointer;font-weight:800;text-decoration:underline;margin-left:6px">→ ดูวิธีทำ</a>
         </div>` : ''}
       <div class="admin-header">
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
@@ -3727,7 +3965,7 @@
         <div class="admin-stat" style="cursor:pointer" onclick="go('/admin/products')"><div style="font-size:36px">📦</div><div style="margin-top:8px;font-weight:700">จัดการสินค้า</div><div style="font-size:12px;color:var(--text-muted)">${EP.length} รายการ</div></div>
         <div class="admin-stat" style="cursor:pointer" onclick="go('/admin/orders')"><div style="font-size:36px">📋</div><div style="margin-top:8px;font-weight:700">จัดการคำสั่งซื้อ</div><div style="font-size:12px;color:var(--text-muted)">${orders.length} คำสั่ง</div></div>
         <div class="admin-stat" style="cursor:pointer;border:2px solid var(--brand);background:var(--brand-soft)" onclick="go('/admin/create-bill')"><div style="font-size:36px">🧾</div><div style="margin-top:8px;font-weight:700">เปิดบิลใหม่</div><div style="font-size:12px;color:var(--brand-dark)">Walk-in / โทรสั่ง</div></div>
-        <div class="admin-stat" style="cursor:pointer" onclick="go('/admin/new')"><div style="font-size:36px">➕</div><div style="margin-top:8px;font-weight:700">เพิ่มสินค้าใหม่</div><div style="font-size:12px;color:var(--text-muted)">สร้าง SKU ใหม่</div></div>
+        ${ownerOnly(`<div class="admin-stat" style="cursor:pointer" onclick="go('/admin/new')"><div style="font-size:36px">➕</div><div style="margin-top:8px;font-weight:700">เพิ่มสินค้าใหม่</div><div style="font-size:12px;color:var(--text-muted)">สร้าง SKU ใหม่</div></div>`)}
       </div>
       ${orders.length ? `
       <div class="section-head" style="margin-top:24px"><h2 style="font-size:16px">📋 คำสั่งซื้อล่าสุด</h2><a class="link" onclick="go('/admin/orders')">ดูทั้งหมด →</a></div>
@@ -3742,7 +3980,9 @@
             <td style="font-size:11px">${new Date(o.createdAt).toLocaleString('th-TH')}</td>
             <td>
               <button class="admin-btn" onclick="go('/admin/order/${o.po}')">👁️</button>
-              <button class="admin-btn" onclick="go('/admin/bill/${o.po}')">🧾</button>
+              ${orderBlockReason(o)
+                ? `<button class="admin-btn" style="opacity:.45" onclick="toast('⛔ ${esc(orderBlockReason(o))}')" title="${esc(orderBlockReason(o))}">🔒</button>`
+                : `<button class="admin-btn" onclick="go('/admin/bill/${o.po}')">🧾</button>`}
             </td>
           </tr>`).join('')}</tbody>
         </table>
@@ -3906,7 +4146,9 @@
                 <td style="font-size:11px">${new Date(o.createdAt).toLocaleString('th-TH')}</td>
                 <td>
                   <button class="admin-btn" onclick="go('/admin/order/${o.po}')" title="ดูรายละเอียด">👁️</button>
-                  <button class="admin-btn" onclick="go('/admin/bill/${o.po}')" title="เปิดบิล">🧾</button>
+                  ${orderBlockReason(o)
+                    ? `<button class="admin-btn" style="opacity:.45" onclick="toast('⛔ ${esc(orderBlockReason(o))}')" title="${esc(orderBlockReason(o))}">🔒</button>`
+                    : `<button class="admin-btn" onclick="go('/admin/bill/${o.po}')" title="เปิดบิล">🧾</button>`}
                   ${nextStatus && o.status !== 'cancelled' ? `<button class="admin-btn" onclick="advanceOrderAdmin('${o.po}')" title="${STATUS_LABEL[nextStatus].th}">▶</button>` : ''}
                 </td>
               </tr>`;
@@ -3954,6 +4196,7 @@
     `;
   }
   async function promptNewCoupon() {
+    if (!can('coupon')) { denyStaff('แก้ไขคูปอง'); return; }
     const code = (prompt("โค้ด (พิมพ์ใหญ่ ไม่มีเว้นวรรค):","") || '').trim().toUpperCase();
     if (!code) return;
     const kind = confirm("ลดเป็น % หรือไม่? (OK=%, Cancel=฿)") ? 'percent' : 'amount';
@@ -3967,12 +4210,14 @@
     else toast("❌ ล้มเหลว: " + ((res&&res.error)||''));
   }
   async function toggleCoupon(code) {
+    if (!can('coupon')) { denyStaff('แก้ไขคูปอง'); return; }
     const c = (S.sheetCoupons||[]).find(x=>x.code===code); if (!c) return;
     c.active = !c.active;
     await apiCall("upsertCoupon", { data: c }, true);
     pullCouponsFromSheet().then(()=>render());
   }
   async function deleteCouponAdmin(code) {
+    if (!can('coupon')) { denyStaff('ลบคูปอง'); return; }
     if (!confirm(`ลบคูปอง ${code}?`)) return;
     await apiCall("deleteCoupon", { code }, true);
     pullCouponsFromSheet().then(()=>render());
@@ -4070,6 +4315,7 @@
   }
 
   async function addBanner() {
+    if (!can('promo')) { denyStaff('เพิ่ม banner'); return; }
     const title = prompt("หัวข้อ banner:","โปรใหญ่ของเดือน"); if (title === null) return;
     const subtitle = askKeep("คำอธิบายรอง:","ลดสูงสุด 50%");
     const cta = askKeep("ข้อความปุ่ม:","ช้อปเลย");
@@ -4083,6 +4329,7 @@
   }
 
   async function editBanner(i) {
+    if (!can('promo')) { denyStaff('แก้ไข banner'); return; }
     const b = (S.banners||[])[i]; if (!b) return;
     if (!b.id) b.id = bannerId();
     const id = b.id;
@@ -4102,6 +4349,7 @@
   }
 
   async function deleteBanner(i) {
+    if (!can('promo')) { denyStaff('ลบ banner'); return; }
     const b = (S.banners||[])[i]; if (!b) return;
     if (!confirm(`ลบ banner "${b.title||'ไม่มีชื่อ'}" ?`)) return;
     const id = b.id;
@@ -4114,6 +4362,7 @@
 
   // เลื่อนลำดับ banner — ตัวแรกคือตัวที่ลูกค้าเห็นก่อน
   async function moveBanner(i, dir) {
+    if (!can('promo')) { denyStaff('จัดลำดับ banner'); return; }
     const list = S.banners || [];
     const j = i + dir;
     if (j < 0 || j >= list.length) return;
@@ -4139,6 +4388,7 @@
   }
 
   async function addTiktokVideo() {
+    if (!can('tiktok')) { denyStaff('เพิ่มคลิป'); return; }
     const url = prompt("Paste URL คลิป TikTok:","https://www.tiktok.com/@iamplastic.thailand/video/xxxxx");
     if (!url) return;
     toast("⏳ กำลังดึงข้อมูลจาก TikTok...");
@@ -4163,6 +4413,7 @@
 
   // ซ่อมลิงก์สั้นทั้งหมดรวดเดียว — ลิงก์สั้นเล่นในเว็บไม่ได้ ต้องแปลงเป็น URL เต็มก่อน
   async function fixAllTiktokLinks() {
+    if (!can('tiktok')) { denyStaff('แก้ลิงก์คลิป'); return; }
     const list = S.tiktokVideos || [];
     const broken = list.filter(v => !tiktokVideoId(v.url));
     if (!broken.length) { toast("✓ ทุกคลิปเล่นในเว็บได้อยู่แล้ว"); return; }
@@ -4203,6 +4454,7 @@
   }
 
   async function editTiktok(i) {
+    if (!can('tiktok')) { denyStaff('แก้ไขคลิป'); return; }
     const v = S.tiktokVideos[i]; if (!v) return;
     const newUrl = prompt("URL:", v.url) || v.url;
     if (newUrl !== v.url) {
@@ -4220,6 +4472,7 @@
     saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet(); toast("✓ อัพเดต"); render();
   }
   function deleteTiktok(i) {
+    if (!can('tiktok')) { denyStaff('ลบคลิป'); return; }
     if (!confirm("ลบคลิปนี้?")) return;
     S.tiktokVideos.splice(i,1); saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet(); render();
   }
@@ -4248,8 +4501,103 @@
       can:['เชื่อมต่อ Google Sheet + ตรวจสอบระบบ','ข้อมูลร้าน · เบอร์ · ที่อยู่','PromptPay + อัพ QR เอง','เลขบัญชีธนาคาร (2 บัญชี)','ช่องทางติดต่อ (LINE / Messenger / TikTok)','SlipOK · Cloudinary · GA4 · LINE Login'] },
   ];
 
+  // =========================
+  // บัญชีพนักงาน (admin_users)
+  // =========================
+  async function pullAdminUsers() {
+    if (!S.sheetApiUrl) return;
+    try {
+      const res = await apiCall("listAdminUsers", {}, true);
+      if (res && res.ok) { S.sheetAdminUsers = res.users || []; saveSynced('sheetAdminUsers'); }
+      else if (res && /unknown action/i.test(String(res.error||''))) {
+        toast("⚠️ ต้อง deploy Code.gs v" + NEED_BACKEND + " ก่อนถึงจะเพิ่มบัญชีพนักงานได้");
+      }
+    } catch (e) { console.error("[adminUsers]", e); }
+  }
+
+  async function saveStaff(data, okMsg) {
+    if (!can('admins')) { denyStaff('จัดการบัญชีพนักงาน'); return false; }
+    try {
+      const res = await apiCall("upsertAdminUser", { data }, true);
+      if (res && res.ok) {
+        await pullAdminUsers();
+        toast(okMsg || "✓ บันทึกแล้ว");
+        render();
+        return true;
+      }
+      toast("❌ " + ((res && res.error) || 'บันทึกไม่สำเร็จ'));
+      return false;
+    } catch (e) { toast("❌ " + (e.message||e)); return false; }
+  }
+
+  async function promptNewStaff() {
+    if (!can('admins')) { denyStaff('เพิ่มบัญชีพนักงาน'); return; }
+    const username = (prompt("Username สำหรับลูกน้อง (ภาษาอังกฤษ/ตัวเลข ไม่มีเว้นวรรค):", "") || "").trim();
+    if (!username) return;
+    if (/\s/.test(username)) { toast("username ห้ามมีเว้นวรรค"); return; }
+    if ((S.sheetAdminUsers||[]).some(u => u.username.toLowerCase() === username.toLowerCase())) {
+      toast("มี username นี้อยู่แล้ว"); return;
+    }
+    const displayName = (prompt("ชื่อเรียก (ไว้ดูว่าใครเปิดบิล):", username) || username).trim();
+    const pw = prompt("รหัสผ่าน (อย่างน้อย 6 ตัว):", "");
+    if (pw === null) return;
+    if (!pw || pw.length < 6) { toast("รหัสผ่านต้องอย่างน้อย 6 ตัว"); return; }
+
+    const isOwnerAcc = confirm(
+      "ให้บัญชีนี้เป็น 'เจ้าของร้าน' (ทำได้ทุกอย่าง) ไหม?\n\n" +
+      "กด OK = เจ้าของร้าน\n" +
+      "กด Cancel = ลูกน้อง (เปิดบิลได้ · ดูได้ · แก้ไขไม่ได้) ← แนะนำ"
+    );
+
+    toast("⏳ กำลังสร้างบัญชี...");
+    const ok = await saveStaff({
+      username, displayName, role: isOwnerAcc ? 'owner' : 'staff',
+      passHash: await sha256(pw), active: true,
+    }, `✓ สร้างบัญชี ${username} แล้ว`);
+
+    if (ok) {
+      setTimeout(() => alert(
+        "สร้างบัญชีเรียบร้อย\n\n" +
+        "Username: " + username + "\n" +
+        "รหัสผ่าน: " + pw + "\n\n" +
+        "บอกรหัสนี้กับลูกน้อง แล้วให้เข้าที่หน้า 'เข้าสู่ระบบ' ได้เลย\n" +
+        "(ระบบเก็บแค่ค่าที่เข้ารหัสแล้ว ดูรหัสย้อนหลังไม่ได้ ถ้าลืมต้องตั้งใหม่)"
+      ), 400);
+    }
+  }
+
+  async function promptResetStaffPw(username) {
+    if (!can('admins')) { denyStaff('ตั้งรหัสผ่านให้พนักงาน'); return; }
+    const pw = prompt(`ตั้งรหัสผ่านใหม่ให้ "${username}" (อย่างน้อย 6 ตัว):`, "");
+    if (pw === null) return;
+    if (!pw || pw.length < 6) { toast("รหัสผ่านต้องอย่างน้อย 6 ตัว"); return; }
+    const ok = await saveStaff({ username, passHash: await sha256(pw) }, `✓ ตั้งรหัสใหม่ให้ ${username} แล้ว`);
+    if (ok) setTimeout(() => alert(`รหัสใหม่ของ ${username}:\n\n${pw}\n\nบอกเจ้าตัวได้เลย`), 400);
+  }
+
+  async function toggleStaffActive(username) {
+    if (!can('admins')) { denyStaff('เปิด/ปิดบัญชีพนักงาน'); return; }
+    const u = (S.sheetAdminUsers||[]).find(x => x.username === username);
+    if (!u) return;
+    const next = !u.active;
+    if (!next && !confirm(`ปิดใช้งานบัญชี "${username}"?\nเจ้าตัวจะล็อกอินไม่ได้จนกว่าจะเปิดใหม่`)) return;
+    await saveStaff({ username, role: u.role, displayName: u.displayName, active: next },
+      next ? `✓ เปิดใช้งาน ${username} แล้ว` : `✓ ปิดใช้งาน ${username} แล้ว`);
+  }
+
+  async function deleteStaff(username) {
+    if (!can('admins')) { denyStaff('ลบบัญชีพนักงาน'); return; }
+    if (!confirm(`ลบบัญชี "${username}" ถาวร?\nถ้าแค่อยากพักการใช้งาน ให้กดปุ่ม 🚫 ปิดใช้งานแทน`)) return;
+    try {
+      const res = await apiCall("deleteAdminUser", { username }, true);
+      if (res && res.ok) { await pullAdminUsers(); toast(`✓ ลบบัญชี ${username} แล้ว`); render(); }
+      else toast("❌ " + ((res && res.error) || 'ลบไม่สำเร็จ'));
+    } catch (e) { toast("❌ " + (e.message||e)); }
+  }
+
   function viewAdminManage() {
     const usingDefault = !S.adminPassHash;
+    if (S.sheetApiUrl && !S._adminUsersPulled) { S._adminUsersPulled = true; pullAdminUsers().then(()=>render()); }
     return `
       ${adminPageHeader('จัดการแอดมิน','🔐',`
         <button class="btn btn-primary" onclick="go('/admin/account')">🔑 ตั้งรหัสแอดมิน</button>
@@ -4268,10 +4616,60 @@
         </div>`}
 
       <div style="background:var(--surface-warm);border:1px solid var(--border);padding:14px 16px;border-radius:10px;margin-bottom:18px;font-size:13px;line-height:1.7">
-        <b>สิทธิ์ในระบบมี 3 ระดับ</b><br>
-        🔐 <b>แอดมิน</b> — เข้าได้ทุกหน้าด้านล่าง · แก้ไขได้ทุกอย่าง · มีคนเดียว<br>
-        👤 <b>ลูกค้า</b> — สั่งซื้อ · ดูออเดอร์ตัวเอง · แก้โปรไฟล์ + ที่อยู่ตัวเอง · รีวิวสินค้า<br>
-        👁️ <b>ผู้เยี่ยมชม</b> — ดูสินค้า · ใส่ตะกร้า · สั่งซื้อแบบไม่สมัครสมาชิก
+        <b>สิทธิ์ในระบบ</b><br>
+        👑 <b>เจ้าของร้าน (owner)</b> — ทำได้ทุกอย่าง<br>
+        🧾 <b>ลูกน้อง (staff)</b> — เปิดบิล · ดูสินค้า/คำสั่งซื้อ/ลูกค้า · <b>แก้ไขอะไรไม่ได้</b><br>
+        👤 <b>ลูกค้า</b> — สั่งซื้อ · ดูออเดอร์ตัวเอง · แก้โปรไฟล์ตัวเอง<br>
+        👁️ <b>ผู้เยี่ยมชม</b> — ดูสินค้า · ใส่ตะกร้า · สั่งซื้อแบบไม่สมัคร
+      </div>
+
+      <div class="co-card" style="margin:0 0 18px;border:2px solid var(--brand)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+          <h3 style="margin:0">👥 บัญชีพนักงาน (${(S.sheetAdminUsers||[]).length})</h3>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-outline" onclick="pullAdminUsers().then(()=>render())">🔄 Refresh</button>
+            <button class="btn btn-primary" onclick="promptNewStaff()">➕ เพิ่มบัญชี</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.7">
+          เก็บใน Sheet tab <b>admin_users</b> · ลูกน้องล็อกอินที่หน้า <b>เข้าสู่ระบบ</b> ด้วย username ที่ตั้งให้
+        </div>
+
+        ${(S.sheetAdminUsers||[]).length === 0 ? `
+          <div style="padding:22px;text-align:center;color:var(--text-muted);font-size:13px;line-height:1.8">
+            ยังไม่มีบัญชีพนักงานเพิ่มเติม<br>
+            กด <b>➕ เพิ่มบัญชี</b> เพื่อสร้างบัญชีลูกน้องที่เปิดบิลได้อย่างเดียว
+          </div>` : `
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>Username</th><th>ชื่อเรียก</th><th>สิทธิ์</th><th>สถานะ</th><th style="text-align:right">จัดการ</th></tr></thead>
+              <tbody>
+                ${(S.sheetAdminUsers||[]).map(u => `
+                  <tr>
+                    <td style="font-family:monospace;font-weight:700">${esc(u.username)}</td>
+                    <td>${esc(u.displayName||'-')}</td>
+                    <td>${u.role==='owner'
+                      ? '<span style="background:#7A1929;color:#fff;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:700">👑 เจ้าของร้าน</span>'
+                      : '<span style="background:#e6f4ff;color:#003a75;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:700">🧾 ลูกน้อง</span>'}</td>
+                    <td>${u.active
+                      ? '<span style="color:#0B7A3E;font-weight:700">ใช้งานอยู่</span>'
+                      : '<span style="color:#b02a2a;font-weight:700">ปิดอยู่</span>'}</td>
+                    <td style="text-align:right;white-space:nowrap">
+                      <button class="admin-btn" onclick="promptResetStaffPw('${esc(u.username)}')" title="ตั้งรหัสใหม่">🔑</button>
+                      <button class="admin-btn" onclick="toggleStaffActive('${esc(u.username)}')" title="${u.active?'ปิดใช้งาน':'เปิดใช้งาน'}">${u.active?'🚫':'✅'}</button>
+                      <button class="admin-btn" onclick="deleteStaff('${esc(u.username)}')" title="ลบ">🗑️</button>
+                    </td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`}
+
+        <div style="background:#fff3cd;border:1px solid #ffc107;padding:11px 14px;border-radius:8px;margin-top:14px;font-size:12px;color:#7a5a00;line-height:1.75">
+          ⚠️ <b>ข้อจำกัดที่ควรรู้</b> — การกันสิทธิ์นี้ทำงานฝั่งหน้าเว็บ
+          กันการกดผิดกดมั่วได้ดี แต่กันคนที่ตั้งใจเลี่ยงด้วยเครื่องมือนักพัฒนาไม่ได้
+          เพราะรหัสเชื่อม Sheet ฝังอยู่ในหน้าเว็บอยู่แล้ว<br>
+          ใช้กับลูกน้องที่ไว้ใจได้ ถ้าต้องการกันแบบจริงจังต้องมี server แยก
+        </div>
       </div>
 
       <div class="section-head" style="margin:0 0 12px"><h2 style="font-size:16px">แอดมินทำอะไรได้บ้าง (${ADMIN_AREAS.length} หมวด)</h2></div>
@@ -4361,6 +4759,7 @@
   }
 
   async function saveAdminCreds() {
+    if (!can('admins')) { denyStaff('เปลี่ยนรหัสแอดมิน'); return; }
     const g = id => (document.getElementById(id)||{}).value || '';
     const box = document.getElementById('adm-result');
     const show = (bg, border, color, html) =>
@@ -4419,6 +4818,7 @@
   }
 
   async function purgeTestCustomers() {
+    if (!can('settings')) { denyStaff('ลบข้อมูลใน Sheet'); return; }
     if (!confirm("ลบแถวลูกค้าที่เกิดจากการทดสอบ (ชื่อขึ้นต้นด้วย [TEST) ออกจาก Sheet?")) return;
     toast("⏳ กำลังลบ...");
     try {
@@ -4586,6 +4986,7 @@
   }
 
   function saveSheetUrlMain() {
+    if (!can('settings')) { denyStaff('แก้ไขการเชื่อมต่อ'); return; }
     const url = (document.getElementById('sheet-url-main')||{}).value.trim();
     let token = (document.getElementById('sheet-token-main')||{}).value.trim();
     if (!url.endsWith('/exec')) {
@@ -4995,6 +5396,7 @@
   }
 
   function moveTiktok(i, dir) {
+    if (!can('tiktok')) { denyStaff('จัดลำดับคลิป'); return; }
     const list = S.tiktokVideos || [];
     const j = i + dir;
     if (j < 0 || j >= list.length) return;
@@ -5005,6 +5407,105 @@
   // =========================
   // SETTINGS admin (PromptPay, Cloudinary, SlipOK, GA, shop info)
   // =========================
+  // เทียบน้ำหนักในระบบกับไฟล์ขนส่ง — คืนเฉพาะตัวที่ต่างกัน
+  function weightDiffs() {
+    const out = [];
+    EP.forEach(p => {
+      const d = SHIP_DATA[String(p.id)];
+      if (!d) return;
+      const [w, fee, dim] = d;
+      const cur = Number(p.weight) || 0;
+      if (Math.abs(cur - w) < 0.01) return;
+      out.push({ id: p.id, name: p.name, from: cur, to: w, fee, dim });
+    });
+    return out;
+  }
+
+  async function applyShipWeights() {
+    if (!can('settings')) { denyStaff('แก้ข้อมูลสินค้า'); return; }
+    if (!S.sheetApiUrl) { toast("ยังไม่เชื่อม Sheet"); return; }
+
+    const diffs = weightDiffs();
+    const total = Object.keys(SHIP_DATA).length;
+    if (!diffs.length) { toast(`✓ น้ำหนักตรงกับไฟล์ขนส่งครบทั้ง ${total} รายการแล้ว`); return; }
+
+    const preview = diffs.slice(0, 8).map(d => `  ${d.from || '(ว่าง)'} → ${d.to} kg   ${d.name.slice(0, 28)}`).join('\n');
+    if (!confirm(
+      `อัปเดตน้ำหนัก ${diffs.length} รายการจากไฟล์ขนส่ง Shopee\n\n` +
+      preview + (diffs.length > 8 ? `\n  ...และอีก ${diffs.length - 8} รายการ` : '') +
+      `\n\nแก้เฉพาะช่อง weight / dimensions / shipEst\nราคา สต็อก และข้อมูลอื่นไม่ถูกแตะ\n\nดำเนินการเลยไหม?`
+    )) return;
+
+    // ส่งทีละก้อน กัน Apps Script ทำงานเกินเวลา
+    const patches = diffs.map(d => ({ id: d.id, weight: d.to, shipEst: d.fee || '', dimensions: d.dim || '' }));
+    const CHUNK = 60;
+    let done = 0, failed = 0;
+
+    for (let i = 0; i < patches.length; i += CHUNK) {
+      const part = patches.slice(i, i + CHUNK);
+      toast(`⏳ กำลังอัปเดต ${Math.min(i + CHUNK, patches.length)}/${patches.length}...`);
+      try {
+        const res = await apiCall("patchProducts", { data: part }, true, 60000);
+        if (res && res.ok) done += res.updated || 0;
+        else if (res && /unknown action/i.test(String(res.error || ''))) {
+          toast(`⚠️ ต้อง deploy Code.gs v${NEED_BACKEND} ก่อน`);
+          return;
+        } else { failed += part.length; console.error("[patchProducts]", res); }
+      } catch (e) { failed += part.length; console.error("[patchProducts]", e); }
+    }
+
+    await pullProductsFromSheet();
+    render();
+    toast(failed ? `⚠️ อัปเดตได้ ${done} · พลาด ${failed} — กดซ้ำอีกครั้งได้` : `✓ อัปเดตน้ำหนัก ${done} รายการเรียบร้อย`);
+  }
+
+  function saveShipTable() {
+    if (!can('settings')) { denyStaff('แก้อัตราค่าส่ง'); return; }
+    const out = [];
+    for (let i = 0; i < shipTable().length; i++) {
+      const m = document.getElementById('ship-max-' + i);
+      const f = document.getElementById('ship-fee-' + i);
+      if (!m || !f) continue;
+      const max = Number(m.value), fee = Number(f.value);
+      if (!(max > 0) || !(fee >= 0)) { toast("กรอกตัวเลขให้ถูกต้องทุกช่อง"); return; }
+      out.push({ max, fee });
+    }
+    out.sort((a, b) => a.max - b.max);
+    // กันกรอกซ้ำขั้นเดียวกัน
+    for (let i = 1; i < out.length; i++) {
+      if (out[i].max === out[i-1].max) { toast(`มีขั้น ${out[i].max} kg ซ้ำกัน`); return; }
+    }
+    S.shipTable = out;
+    saveState(); saveSynced('shipTable');
+    pushSettingsToSheet();
+    toast("✓ บันทึกอัตราค่าส่งแล้ว");
+    render();
+  }
+
+  function addShipBand() {
+    if (!can('settings')) { denyStaff('แก้อัตราค่าส่ง'); return; }
+    const t = shipTable().slice();
+    const last = t[t.length - 1] || { max: 0, fee: 0 };
+    t.push({ max: Number(last.max) + 5, fee: Number(last.fee) + 40 });
+    S.shipTable = t; saveState(); render();
+  }
+
+  function removeShipBand(i) {
+    if (!can('settings')) { denyStaff('แก้อัตราค่าส่ง'); return; }
+    const t = shipTable().slice();
+    if (t.length <= 1) { toast("ต้องเหลืออย่างน้อย 1 ขั้น"); return; }
+    t.splice(i, 1);
+    S.shipTable = t; saveState(); render();
+  }
+
+  function resetShipTable() {
+    if (!can('settings')) { denyStaff('แก้อัตราค่าส่ง'); return; }
+    if (!confirm("กลับไปใช้อัตราเริ่มต้น (ตามไฟล์ Shopee ของร้าน)?")) return;
+    S.shipTable = null;
+    saveState(); saveSynced('shipTable'); pushSettingsToSheet();
+    toast("✓ กลับค่าเริ่มต้นแล้ว"); render();
+  }
+
   function viewAdminSettings() {
     liveSheetConfig(); // ให้ช่อง URL/Token แสดงค่าจริงเสมอ (กันแท็บเก่าโชว์ค่าค้าง)
     // SlipOK key ไม่ถูกส่งมาทาง doGet สาธารณะแล้ว — แอดมินดึงผ่าน POST ที่มี token
@@ -5065,8 +5566,103 @@
         <div id="write-test">${S._writeTestHtml || ''}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="co-card" style="margin:0;grid-column:1 / -1;border:2px solid var(--brand)">
+          <h3 style="margin:0 0 4px">🏢 ข้อมูลบริษัท (ใช้เป็นหัวบิล / ใบกำกับภาษี)</h3>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.7">
+            ข้อมูลนี้พิมพ์อยู่หัวเอกสารทุกใบ · ต้องตรงกับที่จดทะเบียน เพราะใบกำกับภาษีใช้ยื่นสรรพากรได้
+          </div>
+          <div style="display:grid;grid-template-columns:2fr 1fr;gap:0 16px">
+            ${inp('coName','ชื่อบริษัท / ร้าน',S.coName,'บริษัท ทรีวันเดอร์ส จำกัด')}
+            ${inp('coBranch','สาขา',S.coBranch,'สำนักงานใหญ่')}
+          </div>
+          ${inp('coAddress','ที่อยู่จดทะเบียน',S.coAddress,'65 ซ.เทียนทะเล 26 ...')}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">
+            ${inp('coTaxId','เลขประจำตัวผู้เสียภาษี (13 หลัก)',S.coTaxId,'0105563154482')}
+            ${inp('coPhone','เบอร์ในเอกสาร',S.coPhone,'02-xxx-xxxx')}
+          </div>
+
+          <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:14px">
+            <h4 style="margin:0 0 10px;font-size:14px">ภาษีมูลค่าเพิ่ม</h4>
+            <div style="display:grid;grid-template-columns:1fr 2fr;gap:0 16px;align-items:start">
+              ${inp('vatRate','อัตรา VAT (%)',String(S.vatRate),'7','number')}
+              <label style="display:block;margin-bottom:12px">
+                <span style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">ราคาสินค้าที่ตั้งไว้</span>
+                <select id="set-vatMode" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit">
+                  <option value="included" ${S.vatMode!=='excluded'?'selected':''}>รวม VAT แล้ว — ถอด VAT ออกมาแสดง</option>
+                  <option value="excluded" ${S.vatMode==='excluded'?'selected':''}>ยังไม่รวม VAT — บวก VAT เพิ่มท้ายบิล</option>
+                </select>
+              </label>
+            </div>
+            <div style="background:var(--surface-warm);padding:10px 12px;border-radius:8px;font-size:12px;color:var(--text-muted);line-height:1.8">
+              <b>ตัวอย่างการคำนวณ</b> (ยอด ฿370.00 · VAT ${Number(S.vatRate)||7}%)<br>
+              ${(() => {
+                const rate = (Number(S.vatRate)||7) / 100;
+                if (S.vatMode === 'excluded') {
+                  const vat = 370 * rate;
+                  return `ยอดสินค้า ${money(370)} + VAT ${money(vat)} = <b>${money(370+vat)}</b>`;
+                }
+                const base = 370 / (1 + rate);
+                return `ยอดรวม ${money(370)} · ก่อน VAT ${money(base)} · VAT <b>${money(370-base)}</b>`;
+              })()}
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:14px">
+            <h4 style="margin:0 0 4px;font-size:14px">ข้อความโปรโมทท้ายบิล</h4>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">พิมพ์ท้ายใบเสร็จอย่างย่อ · ปล่อยว่าง = ไม่พิมพ์</div>
+            ${inp('billFooter','หัวข้อ',S.billFooter,'ถูกกว่า เร็วกว่า!!!!')}
+            ${inp('billFooterLine','บรรทัด LINE',S.billFooterLine,'add LINE : @thefoodbox')}
+            ${inp('billFooterSub','ข้อความรอง',S.billFooterSub,'สั่งตรงกับร้าน ลด 3% ไม่มีขั้นต่ำ')}
+            ${inp('billFooterQr','URL รูป QR (LINE)',S.billFooterQr,'https://...')}
+          </div>
+        </div>
+
+        <div class="co-card" style="margin:0;grid-column:1 / -1">
+          <h3 style="margin:0 0 4px">🚚 ค่าจัดส่ง (คิดตามน้ำหนักรวม)</h3>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.7">
+            อัตรานี้ถอดมาจากไฟล์ตั้งค่าขนส่ง Shopee ของร้าน · ตรวจกับสินค้าจริง 270 รายการแล้วตรงทั้งหมด<br>
+            น้ำหนักดึงจากช่อง <b>weight</b> ของสินค้าใน Sheet · สินค้าที่ไม่ได้กรอกน้ำหนักระบบคิดให้ 1 kg
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table" style="max-width:520px">
+              <thead><tr><th>น้ำหนักไม่เกิน (kg)</th><th style="text-align:right">ค่าส่ง (บาท)</th><th></th></tr></thead>
+              <tbody>
+                ${shipTable().map((b,i) => `
+                  <tr>
+                    <td><input id="ship-max-${i}" type="number" step="0.1" value="${b.max}"
+                      style="width:110px;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-family:monospace"></td>
+                    <td style="text-align:right"><input id="ship-fee-${i}" type="number" value="${b.fee}"
+                      style="width:110px;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-family:monospace;text-align:right"></td>
+                    <td style="text-align:right"><button class="admin-btn" onclick="removeShipBand(${i})" title="ลบขั้นนี้">🗑️</button></td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+            <button class="btn btn-primary" onclick="saveShipTable()">💾 บันทึกอัตราค่าส่ง</button>
+            <button class="btn btn-outline" onclick="addShipBand()">➕ เพิ่มขั้น</button>
+            <button class="btn btn-ghost" onclick="resetShipTable()">↩️ กลับค่าเริ่มต้น</button>
+          </div>
+          ${(() => {
+            const diffs = weightDiffs();
+            const total = Object.keys(SHIP_DATA).length;
+            return `
+              <div style="background:${diffs.length ? '#fffbeb' : '#e6f7ed'};border:1px solid ${diffs.length ? '#f59e0b' : '#8ed9ae'};padding:12px 14px;border-radius:8px;margin-top:14px;font-size:13px;line-height:1.8;color:${diffs.length ? '#92400e' : '#0B7A3E'}">
+                ${diffs.length ? `
+                  ⚖️ <b>มี ${diffs.length} รายการที่น้ำหนักไม่ตรงกับไฟล์ขนส่งของร้าน</b><br>
+                  <span style="font-size:12px">สินค้าพวกนี้จะคิดค่าส่งผิด · กดปุ่มด้านล่างเพื่อเติมน้ำหนักจริงลง Sheet (แก้เฉพาะช่องน้ำหนัก/ขนาด/ค่าส่ง ไม่แตะราคาและสต็อก)</span><br>
+                  <button class="btn btn-primary" style="margin-top:10px" onclick="applyShipWeights()">⚖️ เติมน้ำหนักจริง ${diffs.length} รายการ</button>`
+                : `✅ น้ำหนักสินค้าตรงกับไฟล์ขนส่งครบทั้ง ${total} รายการ`}
+              </div>`;
+          })()}
+          <div style="font-size:12px;color:var(--text-muted);margin-top:12px;background:var(--surface-warm);padding:10px 12px;border-radius:8px;line-height:1.8">
+            เกิน ${shipTable()[shipTable().length-1].max} kg คิด ฿${SHIP_OVER_BASE} แล้วบวก ฿${SHIP_OVER_STEP} ทุกๆ ${SHIP_OVER_KG} kg<br>
+            <b>ลองคำนวณ:</b> ${[1,2.5,4,8,12,18,25].map(w => `${w}kg = ฿${shippingFeeForWeight(w)}`).join(' · ')}
+          </div>
+        </div>
+
         <div class="co-card" style="margin:0">
-          <h3 style="margin:0 0 12px">🏪 ข้อมูลร้าน</h3>
+          <h3 style="margin:0 0 12px">🏪 ข้อมูลร้าน (แสดงบนเว็บ)</h3>
           ${inp('shopName','ชื่อร้าน',S.shopName,'iamplastic')}
           ${inp('shopPhone','เบอร์ร้าน',S.shopPhone,'081-234-5678')}
           ${inp('shopAddress','ที่อยู่ร้าน',S.shopAddress,'')}
@@ -5234,6 +5830,7 @@
   }
 
   function saveShopSettings() {
+    if (!can('settings')) { denyStaff('แก้ไขตั้งค่าร้าน'); return; }
     const g = id => (document.getElementById('set-'+id)||{}).value.trim();
     S.shopName = g('shopName');
     S.shopPhone = g('shopPhone');
@@ -5252,6 +5849,11 @@
     S.cloudinaryPreset = g('cloudinaryPreset');
     S.gaTagId = g('gaTagId');
     S.liffId = g('liffId');
+    ['coName','coBranch','coAddress','coTaxId','coPhone','vatRate',
+     'billFooter','billFooterLine','billFooterSub','billFooterQr'].forEach(k => { S[k] = g(k); });
+    S.vatRate = Number(S.vatRate) || 7;
+    const vm = document.getElementById('set-vatMode');
+    if (vm) S.vatMode = vm.value;
     S.lineOA = g('lineOA');
     S.messengerUrl = g('messengerUrl');
     S.tiktokUrl = g('tiktokUrl');
@@ -5363,6 +5965,8 @@
 
   // Shop settings sync กับ Sheet (แก้ปัญหา Vercel preview URL localStorage หาย)
   const SETTING_KEYS = ['shopName','shopPhone','shopAddress','promptPayId','customQrImage',
+    'coName','coBranch','coAddress','coTaxId','coPhone','vatRate','vatMode',
+    'billFooter','billFooterLine','billFooterSub','billFooterQr',
     'bankName','bankAccountName','bankAccountNo',
     'bankName2','bankAccountName2','bankAccountNo2',
     'slipokApiKey','slipokBranchId','cloudinaryCloud','cloudinaryPreset',
@@ -5869,11 +6473,22 @@
   }
 
   async function advanceOrderAdmin(po) {
+    if (!can('order')) { denyStaff('เปลี่ยนสถานะคำสั่งซื้อ'); return; }
     const orders = S.sheetOrders || S.orders || [];
     const o = orders.find(x => x.po === po);
     if (!o) return;
     const nextStatus = STATUS_FLOW[STATUS_FLOW.indexOf(o.status) + 1];
     if (!nextStatus) return;
+
+    // จะข้ามจาก "รอชำระเงิน" ไปขั้นถัดไปได้ ต้องยืนยันสลิปก่อน
+    if (o.status === 'pending_payment') {
+      const why = orderBlockReason(o);
+      if (why) {
+        toast(`⛔ ยังจัดของไม่ได้ — ${why}`);
+        if (o.slip) setTimeout(() => toast("👉 กดดูสลิปแล้วกด ✓ ยืนยัน ก่อน"), 1600);
+        return;
+      }
+    }
     let tracking = o.tracking || '';
     if (nextStatus === 'shipping' && !tracking) {
       tracking = prompt("ใส่หมายเลขติดตามพัสดุ (ปล่อยว่างให้ระบบ gen ให้)", "TH" + String(Math.floor(Math.random()*99999999999)).padStart(11,'0')) || '';
@@ -6005,6 +6620,7 @@
     toast("บันทึก tracking ✓"); render();
   }
   async function cancelOrderAdmin(po) {
+    if (!can('order')) { denyStaff('ยกเลิกคำสั่งซื้อ'); return; }
     if (!confirm("ยกเลิกคำสั่งซื้อ " + po + " ?")) return;
     const orders = S.sheetOrders || S.orders || [];
     const o = orders.find(x => x.po === po);
@@ -6192,7 +6808,6 @@
                 <option value="qr" ${b.payment==='qr'?'selected':''}>📱 QR PromptPay</option>
                 <option value="bank" ${b.payment==='bank'?'selected':''}>🏦 โอนธนาคาร</option>
                 <option value="credit" ${b.payment==='credit'?'selected':''}>📝 เครดิต (ค้างชำระ)</option>
-                <option value="cod" ${b.payment==='cod'?'selected':''}>📦 COD เก็บปลายทาง</option>
               </select>
               <label style="font-size:11px;color:var(--text-muted);margin-top:6px">หมายเหตุ</label>
               <textarea rows="2" oninput="S.bill.note=this.value" placeholder="หมายเหตุในบิล (ถ้ามี)" style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface-warm);color:var(--text);font-family:inherit;font-size:12px;resize:vertical">${b.note||''}</textarea>
@@ -6387,118 +7002,298 @@
     go('/admin/bill/' + bl);
   }
 
+  // ============================================================
+  // ใบเสร็จ / ใบกำกับภาษี
+  //
+  // 2 รูปแบบ ตามเอกสารจริงของร้าน
+  //   short = ใบเสร็จรับเงิน/ใบกำกับภาษีอย่างย่อ — พิมพ์ต้นฉบับ+สำเนาคู่กันในแผ่นเดียว
+  //   full  = ใบกำกับภาษี/ใบเสร็จรับเงินเต็มรูป — มีบล็อกข้อมูลผู้ซื้อ + ช่องเซ็น 3 ช่อง
+  //
+  // ข้อมูลบริษัททั้งหมดดึงจากหน้าตั้งค่า ไม่ฝังในโค้ดแล้ว
+  // ============================================================
+  function vatBreakdown(total, rate, mode) {
+    const r = (Number(rate) || 0) / 100;
+    const t = Number(total) || 0;
+    if (!r) return { base: t, vat: 0, grand: t };
+    if (mode === 'excluded') { const vat = t * r; return { base: t, vat, grand: t + vat }; }
+    const base = t / (1 + r);
+    return { base, vat: t - base, grand: t };
+  }
+
+  function billDocType(o) {
+    // ลูกค้าขอใบกำกับภาษี (มีเลขผู้เสียภาษี) → เต็มรูป · นอกนั้นอย่างย่อ
+    return (o.taxInvoice || (o.customer || {}).taxId) ? 'full' : 'short';
+  }
+
+  function billItemRows(o) {
+    return (o.items || []).map((item, i) => {
+      const p = EP.find(x => x.id === item.pid) || { name: item.pid };
+      const each = Number(item.priceEach) || 0;
+      return {
+        no: i + 1,
+        name: p.name + (item.size ? ` (${item.size})` : ''),
+        pid: item.pid,
+        qty: Number(item.qty) || 0,
+        each,
+        line: each * (Number(item.qty) || 0),
+      };
+    });
+  }
+
+  function coHeaderHtml(compact) {
+    const name = esc(S.coName || 'ร้านค้า');
+    const branch = S.coBranch ? ` (${esc(S.coBranch)})` : '';
+    return `
+      <div style="${compact ? 'text-align:center' : ''}">
+        <div style="font-weight:800;font-size:${compact ? '13px' : '15px'};line-height:1.4">${name}${branch}</div>
+        <div style="font-size:${compact ? '10.5px' : '11.5px'};line-height:1.5;color:#222">${esc(S.coAddress || '')}</div>
+        <div style="font-size:${compact ? '10.5px' : '11.5px'};color:#222">
+          เลขประจำตัวผู้เสียภาษี: ${esc(S.coTaxId || '-')}${S.coPhone ? ` · โทร ${esc(S.coPhone)}` : ''}
+        </div>
+      </div>`;
+  }
+
+  // ---------- แบบย่อ (ต้นฉบับ / สำเนา) ----------
+  function billShortCopy(o, rows, v, label, dateStr) {
+    const row = (l, val, bold) => `
+      <tr>
+        <td style="padding:3px 0;font-size:11.5px${bold ? ';font-weight:700' : ''}">${l}</td>
+        <td style="padding:3px 0;text-align:right;font-size:11.5px;font-variant-numeric:tabular-nums${bold ? ';font-weight:700' : ''}">${val}</td>
+      </tr>`;
+    return `
+      <div style="flex:1;min-width:0;padding:0 10px">
+        ${coHeaderHtml(true)}
+        <div style="text-align:center;margin:10px 0 2px;font-weight:800;font-size:13px">
+          ใบเสร็จรับเงิน / ใบกำกับภาษีอย่างย่อ
+        </div>
+        <div style="text-align:center;font-size:11px;color:#444;margin-bottom:10px">(${label})</div>
+
+        <table style="width:100%;font-size:11.5px;border-collapse:collapse;margin-bottom:10px">
+          <tr>
+            <td style="padding:1px 0"><b>วันที่:</b> ${dateStr}</td>
+            <td style="padding:1px 0;text-align:right"><b>เลขที่บิล:</b> ${esc(o.bl || o.po)}</td>
+          </tr>
+          ${o.refOrderNo ? `<tr><td style="padding:1px 0"><b>เลขที่คำสั่งซื้อ:</b> ${esc(o.refOrderNo)}</td><td style="padding:1px 0;text-align:right"><b>ช่องทาง:</b> ${esc(o.channel || '-')}</td></tr>` : ''}
+          <tr>
+            <td style="padding:1px 0"><b>ลูกค้า:</b> ${esc((o.customer || {}).name || '-')}</td>
+            <td style="padding:1px 0;text-align:right"><b>ขนส่ง:</b> ${esc(o.carrierName || o.shippingMethod || '-')}</td>
+          </tr>
+          <tr>
+            <td style="padding:1px 0"><b>ชำระเงิน:</b> ${esc(o.payment || '-')}</td>
+            <td style="padding:1px 0;text-align:right">${o.tracking ? `<b>Tracking:</b> ${esc(o.tracking)}` : ''}</td>
+          </tr>
+        </table>
+
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead>
+            <tr style="background:#f2f2f2">
+              <th style="border:1px solid #999;padding:4px 3px;width:26px">#</th>
+              <th style="border:1px solid #999;padding:4px 3px">รายการ</th>
+              <th style="border:1px solid #999;padding:4px 3px;width:44px">จำนวน</th>
+              <th style="border:1px solid #999;padding:4px 3px;width:52px">ราคา</th>
+              <th style="border:1px solid #999;padding:4px 3px;width:62px">รวม</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td style="border:1px solid #999;padding:4px 3px;text-align:center">${r.no}</td>
+                <td style="border:1px solid #999;padding:4px 5px;word-break:break-word">${esc(r.name)}</td>
+                <td style="border:1px solid #999;padding:4px 3px;text-align:center;font-variant-numeric:tabular-nums">${r.qty}</td>
+                <td style="border:1px solid #999;padding:4px 3px;text-align:right;font-variant-numeric:tabular-nums">${r.each.toFixed(2)}</td>
+                <td style="border:1px solid #999;padding:4px 3px;text-align:right;font-variant-numeric:tabular-nums">${r.line.toFixed(2)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+
+        <table style="width:100%;margin-top:14px;border-top:1px solid #000;border-collapse:collapse">
+          ${row('ยอดรวม (เฉพาะค่าสินค้า)', v.grand.toFixed(2))}
+          ${row('ยอดสินค้าก่อน VAT', v.base.toFixed(2))}
+          ${row(`ภาษีมูลค่าเพิ่ม ${Number(S.vatRate) || 7}%`, v.vat.toFixed(2))}
+        </table>
+
+        ${S.billFooter || S.billFooterLine ? `
+          <div style="margin-top:16px;padding-top:12px;border-top:1px dashed #999;display:flex;gap:10px;align-items:center;justify-content:center">
+            ${S.billFooterQr ? `<img src="${esc(S.billFooterQr)}" style="width:64px;height:64px;object-fit:contain" alt="">` : ''}
+            <div style="text-align:center;line-height:1.5">
+              ${S.billFooter ? `<div style="font-weight:800;font-size:13px">${esc(S.billFooter)}</div>` : ''}
+              ${S.billFooterLine ? `<div style="font-weight:700;font-size:12px">${esc(S.billFooterLine)}</div>` : ''}
+              ${S.billFooterSub ? `<div style="font-size:11px;color:#C00;font-weight:700">${esc(S.billFooterSub)}</div>` : ''}
+            </div>
+          </div>` : ''}
+      </div>`;
+  }
+
+  // ---------- แบบเต็ม ----------
+  function billFullHtml(o, rows, v, dateStr) {
+    const c = o.customer || {};
+    const cell = (l, val) => `
+      <tr>
+        <td style="padding:5px 8px;font-weight:700;font-size:12px;white-space:nowrap;vertical-align:top">${l}</td>
+        <td style="padding:5px 8px;font-size:12px">${val}</td>
+      </tr>`;
+    return `
+      <div style="display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:16px">
+        ${coHeaderHtml(false)}
+        <div style="text-align:right;white-space:nowrap">
+          <div style="font-weight:800;font-size:17px">ใบกำกับภาษี / ใบเสร็จรับเงิน</div>
+          <div style="font-size:12px;margin-top:2px">(ต้นฉบับ)</div>
+          <div style="font-size:10.5px;color:#555;margin-top:2px">เอกสารออกเป็นชุด</div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:0;border:1px solid #000;margin-bottom:14px">
+        <table style="flex:1;border-collapse:collapse;border-right:1px solid #000">
+          ${cell('ชื่อลูกค้า:', esc(c.name || '-') + (c.company ? ` ${esc(c.company)}` : ''))}
+          ${cell('สาขา:', esc(c.branch || 'สำนักงานใหญ่'))}
+          ${cell('เลขประจำตัวผู้เสียภาษี:', `<b style="font-variant-numeric:tabular-nums">${esc(c.taxId || '-')}</b>`)}
+          ${cell('ที่อยู่:', esc(c.address || '-'))}
+        </table>
+        <table style="width:230px;border-collapse:collapse">
+          ${cell('วันที่ออกเอกสาร:', `<b>${dateStr}</b>`)}
+          ${cell('เลขที่ใบกำกับภาษี:', `<b>${esc(o.bl || o.po)}</b>`)}
+        </table>
+      </div>
+
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#f2f2f2">
+            <th style="border:1px solid #000;padding:6px 4px;width:52px">ลำดับ</th>
+            <th style="border:1px solid #000;padding:6px 4px">รายการสินค้า</th>
+            <th style="border:1px solid #000;padding:6px 4px;width:70px">จำนวน</th>
+            <th style="border:1px solid #000;padding:6px 4px;width:78px">หน่วยละ</th>
+            <th style="border:1px solid #000;padding:6px 4px;width:95px">จำนวนเงิน</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr>
+              <td style="border:1px solid #000;padding:6px 4px;text-align:center">${r.no}</td>
+              <td style="border:1px solid #000;padding:6px 8px">${esc(r.name)}</td>
+              <td style="border:1px solid #000;padding:6px 4px;text-align:center;font-variant-numeric:tabular-nums">${r.qty}</td>
+              <td style="border:1px solid #000;padding:6px 4px;text-align:right;font-variant-numeric:tabular-nums">${r.each.toFixed(2)}</td>
+              <td style="border:1px solid #000;padding:6px 4px;text-align:right;font-variant-numeric:tabular-nums">${r.line.toFixed(2)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+
+      <div style="display:flex;gap:20px;margin-top:12px;align-items:flex-start">
+        <div style="flex:1;font-size:11.5px;line-height:1.9">
+          ${o.channel ? `<div><b>ช่องทางการจัดจำหน่าย:</b> ${esc(o.channel)}</div>` : ''}
+          ${o.refOrderNo ? `<div><b>เลขที่คำสั่งซื้อ:</b> <span style="font-variant-numeric:tabular-nums">${esc(o.refOrderNo)}</span></div>` : ''}
+          <div><b>ช่องทางการชำระเงิน:</b> ${esc(o.payment || '-')}</div>
+          <div><b>ขนส่ง:</b> ${esc(o.carrierName || o.shippingMethod || '-')}</div>
+          ${o.tracking ? `<div><b>Tracking:</b> ${esc(o.tracking)}</div>` : ''}
+        </div>
+        <table style="width:340px;border-collapse:collapse;font-size:12px">
+          <tr>
+            <td style="border:1px solid #000;padding:6px 10px;text-align:right">มูลค่าก่อนภาษีมูลค่าเพิ่ม</td>
+            <td style="border:1px solid #000;padding:6px 10px;text-align:right;width:105px;font-variant-numeric:tabular-nums">${v.base.toFixed(2)}</td>
+          </tr>
+          <tr>
+            <td style="border:1px solid #000;padding:6px 10px;text-align:right">ภาษีมูลค่าเพิ่ม ${Number(S.vatRate) || 7}%</td>
+            <td style="border:1px solid #000;padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">${v.vat.toFixed(2)}</td>
+          </tr>
+          <tr>
+            <td style="border:1px solid #000;padding:6px 10px;text-align:right;font-weight:700">มูลค่ารวมภาษีมูลค่าเพิ่ม</td>
+            <td style="border:1px solid #000;padding:6px 10px;text-align:right;font-weight:700;border-bottom:3px double #000;font-variant-numeric:tabular-nums">${v.grand.toFixed(2)}</td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="display:flex;gap:30px;margin-top:40px;text-align:center">
+        ${[
+          [esc(o.carrierName || o.shippingMethod || ''), 'ผู้จัดส่ง'],
+          [esc(o.channel || ''), 'ผู้รับเงิน'],
+          [esc(o.createdBy || S.adminName || ''), 'ผู้มีอำนาจลงนาม'],
+        ].map(([sig, label]) => `
+          <div style="flex:1">
+            <div style="font-size:15px;font-style:italic;font-weight:700;min-height:22px">${sig}</div>
+            <div style="border-bottom:1px dotted #000;margin:2px 12px 6px"></div>
+            <div style="font-size:11.5px">${label}</div>
+          </div>`).join('')}
+      </div>`;
+  }
+
   function viewAdminBill(po) {
-    // ค้นทั้ง PO (orders) และ BL/RC/TX (bills) — po arg อาจเป็น RC-xxx / TX-xxx ก็ได้
     const all = [...allBillsFlat(), ...(S.sheetOrders || []), ...(S.orders || [])];
-    const o = all.find(x => (x.bl||x.po) === po);
-    if (!o) {
-      // Auto-fetch bills ถ้ายังไม่โหลด
-      const isBill = /^(RC-|TX-|BL-)/.test(po||'');
-      if (isBill && S.sheetApiUrl) {
-        pullBillsFromSheet().then(()=>render());
-        return `<div class="cart-empty"><div class="icon">⏳</div><div>กำลังโหลดบิล ${po}...</div></div>`;
+    const o = all.find(x => (x.bl || x.po) === po);
+
+    // เปิดบิลจาก PO ที่ยังไม่ยืนยันสลิปไม่ได้
+    if (o && o.po && !o.bl) {
+      const why = orderBlockReason(o);
+      if (why) {
+        return `
+          <div class="admin-header no-print">
+            <button class="btn btn-outline" onclick="go('/admin/order/${esc(o.po)}')">← กลับไปที่คำสั่งซื้อ</button>
+          </div>
+          <div class="co-card" style="border:2px solid var(--gold);max-width:560px;margin:0 auto">
+            <div style="text-align:center;padding:10px 0 4px;font-size:44px">⏳</div>
+            <h2 style="margin:0 0 8px;text-align:center;font-size:19px">ยังเปิดบิลไม่ได้</h2>
+            <p style="text-align:center;color:var(--text-muted);font-size:14px;margin:0 0 18px;line-height:1.75">
+              ${esc(why)}<br>
+              ต้องยืนยันว่าเงินเข้าแล้วก่อน ถึงจะเปิดบิลและจัดของได้
+            </p>
+            <div style="background:var(--surface-warm);border-radius:8px;padding:14px 16px;font-size:13px;line-height:2">
+              <b>ลำดับขั้นตอน</b><br>
+              ${['ลูกค้าสั่งซื้อ','ลูกค้าแนบสลิปโอนเงิน','แอดมินตรวจสลิป → กดยืนยัน','เปิดบิล + จัดสินค้า','ส่งของ']
+                .map((st,i) => {
+                  const doneStep = i===0 || (i===1 && o.slip) || (i===2 && slipOk(o));
+                  return `<div style="display:flex;gap:9px"><span>${doneStep?'✅':(i===(o.slip?2:1)?'👉':'⬜')}</span><span style="${doneStep?'':'color:var(--text-muted)'}">${st}</span></div>`;
+                }).join('')}
+            </div>
+            <button class="btn btn-primary btn-block" style="margin-top:16px" onclick="go('/admin/order/${esc(o.po)}')">
+              ${o.slip ? '🔍 ไปตรวจสลิป' : '📋 ดูรายละเอียดคำสั่งซื้อ'}
+            </button>
+          </div>`;
       }
-      return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบ ${po}</div></div>`;
     }
-    const dt = new Date(o.createdAt);
-    const dateStr = dt.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+    if (!o) {
+      const isBill = /^(RC-|TX-|BL-|ST-|W)/.test(po || '');
+      if (isBill && S.sheetApiUrl) {
+        pullBillsFromSheet().then(() => render());
+        return `<div class="cart-empty"><div class="icon">⏳</div><div>กำลังโหลดบิล ${esc(po)}...</div></div>`;
+      }
+      return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบ ${esc(po)}</div></div>`;
+    }
+
+    const dt = new Date(o.createdAt || Date.now());
+    const dateStr = isNaN(dt) ? '-' : `${dt.getDate()}/${dt.getMonth() + 1}/${dt.getFullYear() + 543}`;
+    const rows = billItemRows(o);
+    const v = vatBreakdown(o.total || 0, S.vatRate, S.vatMode);
+    const mode = S._billMode || billDocType(o);
+    const setMode = m => `onclick="S._billMode='${m}';render()"`;
+
     return `
       <div class="admin-header no-print">
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-          <button class="btn btn-outline" onclick="go('/admin/order/${o.po}')">← กลับ</button>
-          <div style="flex:1"><h1 style="margin:0;font-size:20px">🧾 ${o.taxInvoice?'ใบกำกับภาษี':'ใบเสร็จรับเงิน'}</h1><div style="font-size:12px;color:var(--text-muted)">${o.po}</div></div>
+          <button class="btn btn-outline" onclick="go('/admin/bills')">← กลับ</button>
+          <div style="flex:1">
+            <h1 style="margin:0;font-size:20px">🧾 ${esc(o.bl || o.po)}</h1>
+            <div style="font-size:12px;color:var(--text-muted)">${esc(S.coName || '')} · VAT ${Number(S.vatRate) || 7}% (${S.vatMode === 'excluded' ? 'บวกเพิ่ม' : 'ราคารวม VAT แล้ว'})</div>
+          </div>
+          <div style="display:flex;gap:6px;background:var(--surface-warm);padding:4px;border-radius:8px">
+            <button class="btn ${mode === 'short' ? 'btn-primary' : 'btn-ghost'}" style="font-size:12px" ${setMode('short')}>อย่างย่อ (ต้นฉบับ+สำเนา)</button>
+            <button class="btn ${mode === 'full' ? 'btn-primary' : 'btn-ghost'}" style="font-size:12px" ${setMode('full')}>เต็มรูป</button>
+          </div>
+          <button class="btn btn-outline" onclick="go('/admin/settings')">🏢 แก้ข้อมูลบริษัท</button>
           <button class="btn btn-primary" onclick="window.print()">🖨️ พิมพ์</button>
         </div>
       </div>
 
-      <div class="bill-paper">
-        <div class="bill-header">
-          <div>
-            <h1 class="bill-title">${o.taxInvoice ? 'ใบกำกับภาษี / ใบเสร็จรับเงิน' : 'ใบเสร็จรับเงิน'}</h1>
-            <div class="bill-subtitle">${o.taxInvoice ? 'Tax Invoice / Receipt' : 'Receipt'}</div>
-          </div>
-          <div class="bill-shop">
-            <div class="bill-shop-name">iamplastic</div>
-            <div class="bill-shop-tag">บรรจุภัณฑ์พลาสติกครบวงจร</div>
-            <div class="bill-shop-addr">123/45 หมู่ 5 ต.กำแพงแสน อ.กำแพงแสน จ.นครปฐม 73140</div>
-            <div class="bill-shop-addr">โทร 02-xxx-xxxx · Tax ID: 0-1055-58001-23-4</div>
-          </div>
-        </div>
+      ${!S.coTaxId ? `<div class="no-print" style="background:#fff3cd;border:1px solid #ffc107;padding:11px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#7a5a00">
+        ⚠️ ยังไม่ได้ใส่เลขประจำตัวผู้เสียภาษี — ใบกำกับภาษีที่พิมพ์ออกไปจะใช้ยื่นไม่ได้
+        <a onclick="go('/admin/settings')" style="color:var(--brand);cursor:pointer;font-weight:700">→ ไปใส่</a>
+      </div>` : ''}
 
-        <div class="bill-meta">
-          <div><b>เลขที่:</b> <span class="mono">${o.po}</span></div>
-          <div><b>วันที่:</b> ${dateStr}</div>
-          <div><b>วิธีชำระ:</b> ${({qr:'QR PromptPay',bank:'โอนธนาคาร',cod:'COD',card:'บัตรเครดิต'})[o.payment]||o.payment}</div>
-        </div>
-
-        <div class="bill-parties">
-          <div class="bill-party">
-            <div class="bill-party-h">ผู้ขาย / SELLER</div>
-            <div><b>iamplastic</b></div>
-            <div>123/45 หมู่ 5 ต.กำแพงแสน อ.กำแพงแสน จ.นครปฐม 73140</div>
-            <div>เลขประจำตัวผู้เสียภาษี: <span class="mono">0-1055-58001-23-4</span></div>
-          </div>
-          <div class="bill-party">
-            <div class="bill-party-h">ผู้ซื้อ / BUYER</div>
-            <div><b>${(o.customer||{}).name||'-'}</b></div>
-            <div>${(o.customer||{}).address||'-'}</div>
-            <div>เบอร์โทร: ${(o.customer||{}).phone||'-'}</div>
-            ${o.taxInvoice?`<div>เลขประจำตัวผู้เสียภาษี: <span class="mono">0-1055-58001-23-4</span></div>`:''}
-          </div>
-        </div>
-
-        <table class="bill-table">
-          <thead><tr>
-            <th style="width:40px">#</th>
-            <th>รายการสินค้า</th>
-            <th style="text-align:center;width:60px">จำนวน</th>
-            <th style="text-align:right;width:80px">ราคา/หน่วย</th>
-            <th style="text-align:right;width:100px">จำนวนเงิน</th>
-          </tr></thead>
-          <tbody>
-            ${o.items.map((item, i) => {
-              const p = EP.find(x => x.id === item.pid) || { name: item.pid };
-              const each = item.priceEach || 0;
-              const line = each * item.qty;
-              return `<tr>
-                <td>${i+1}</td>
-                <td>${p.name}${item.size?` <span style="color:#666;font-size:11px">(${item.size})</span>`:''}<div style="font-size:10px;color:#666" class="mono">${item.pid}</div></td>
-                <td style="text-align:center" class="mono">${item.qty}</td>
-                <td style="text-align:right" class="mono">${money(each)}</td>
-                <td style="text-align:right" class="mono">${money(line)}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-          <tfoot>
-            <tr><td colspan="4" style="text-align:right;padding-top:16px">ยอดรวมสินค้า</td><td class="mono" style="text-align:right;padding-top:16px">${money(o.subtotal||0)}</td></tr>
-            ${o.discount>0?`<tr><td colspan="4" style="text-align:right">ส่วนลด</td><td class="mono" style="text-align:right;color:#B23">−${money(o.discount)}</td></tr>`:''}
-            <tr><td colspan="4" style="text-align:right">ค่าจัดส่ง</td><td class="mono" style="text-align:right">${o.shipping===0?'ฟรี':money(o.shipping)}</td></tr>
-            ${o.taxInvoice?`
-              <tr><td colspan="4" style="text-align:right;font-size:11px;color:#666">ยอดก่อน VAT</td><td class="mono" style="text-align:right;font-size:11px;color:#666">${money((o.total||0)/1.07)}</td></tr>
-              <tr><td colspan="4" style="text-align:right;font-size:11px;color:#666">ภาษีมูลค่าเพิ่ม 7%</td><td class="mono" style="text-align:right;font-size:11px;color:#666">${money((o.total||0) - (o.total||0)/1.07)}</td></tr>
-            `:''}
-            <tr class="bill-grand"><td colspan="4" style="text-align:right"><b>รวมทั้งสิ้น</b></td><td class="mono" style="text-align:right"><b>${money(o.total||0)}</b></td></tr>
-          </tfoot>
-        </table>
-
-        <div class="bill-footer">
-          <div class="bill-sign">
-            <div class="bill-sign-line">.................................</div>
-            <div>ลายมือชื่อ ผู้รับเงิน</div>
-          </div>
-          <div class="bill-sign">
-            <div class="bill-sign-line">.................................</div>
-            <div>ลายมือชื่อ ผู้อนุมัติ</div>
-          </div>
-          <div class="bill-sign">
-            <div class="bill-sign-line">.................................</div>
-            <div>ลายมือชื่อ ผู้รับสินค้า</div>
-          </div>
-        </div>
-
-        <div class="bill-note">
-          <b>หมายเหตุ:</b> ${o.tracking?`หมายเลขติดตาม ${o.tracking} (${o.carrierName||''})`:'-'}
-        </div>
+      <div class="bill-paper" style="background:#fff;color:#000">
+        ${mode === 'short' ? `
+          <div style="display:flex;gap:0;align-items:stretch">
+            ${billShortCopy(o, rows, v, 'ต้นฉบับ', dateStr)}
+            <div style="border-left:1px dashed #999"></div>
+            ${billShortCopy(o, rows, v, 'สำเนา', dateStr)}
+          </div>`
+        : billFullHtml(o, rows, v, dateStr)}
       </div>
     `;
   }
@@ -6610,6 +7405,7 @@
   }
 
   async function adminDelete(pid) {
+    if (!can('product')) { denyStaff('ลบสินค้า'); return; }
     const p = EP.find(x => x.id === pid);
     if (!p) return;
     if (!confirm(`ลบ "${p.name.slice(0, 40)}..." ?`)) return;
@@ -6719,6 +7515,7 @@
   }
 
   async function adminSave(pid, isNew) {
+    if (!can('product')) { denyStaff('แก้ไขสินค้า'); return; }
     const g = id => document.getElementById(id);
     const idVal = isNew ? g('ae-id').value.trim() : pid;
     if (!idVal) { toast("กรุณาใส่รหัสสินค้า"); return; }
@@ -6909,7 +7706,7 @@
         ` : o.status === 'pending_payment' ? `
         <div class="qr-card" style="border-style:solid;border-color:var(--border)">
           <h3 style="color:var(--text)">💳 ${paymentLabel}</h3>
-          <div class="sub" style="margin-bottom:0">${o.payment === 'cod' ? 'จ่ายเงินสด ' + money(o.total) + ' ตอนรับสินค้า' : 'ระบบจะพาไปยังหน้าชำระเงินของธนาคาร'}</div>
+          <div class="sub" style="margin-bottom:0">โอนเงิน ${money(o.total)} แล้วแนบสลิปเพื่อยืนยันการชำระเงิน</div>
           <div class="qr-amount" style="color:var(--brand)">${money(o.total)}</div>
         </div>
         ` : `
