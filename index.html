@@ -1370,7 +1370,9 @@
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       if (isPost) {
-        const body = JSON.stringify({ action, token: cfg.token, ...extra });
+        // token ต้องอยู่ "หลัง" ...extra เสมอ — ไม่งั้นถ้า extra มีคีย์ชื่อ token
+        // (เช่นรหัสลิงก์ reset) จะไปทับรหัสยืนยันของระบบ แล้วโดนตีกลับว่า unauthorized
+        const body = JSON.stringify({ action, ...extra, token: cfg.token });
         r = await fetch(cfg.url, {
           method: "POST",
           redirect: "follow",
@@ -3192,10 +3194,10 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 66;
+  const APP_VERSION = 67;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
-  const NEED_BACKEND = 46;
+  const NEED_BACKEND = 47;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -3411,7 +3413,7 @@
     const salt = newSalt();
     const hash = await hashPassword(pw, salt);
     try {
-      const res = await apiCall("resetPassword", { token, passHash: hash, passSalt: salt }, true);
+      const res = await apiCall("resetPassword", { resetToken: token, passHash: hash, passSalt: salt }, true);
       if (res && res.ok) {
         S._resetDone = true; render();
       } else {
@@ -3737,7 +3739,7 @@
       S._resetToken = token;
       S._resetCheck = null;
       S._resetDone = false;
-      apiCall("verifyResetToken", { token }, true)
+      apiCall("verifyResetToken", { resetToken: token }, true)
         .then(r => { S._resetCheck = r || { ok: false, error: 'ตรวจสอบไม่ได้' }; render(); })
         .catch(e => { S._resetCheck = { ok: false, error: String(e.message || e) }; render(); });
     }
