@@ -527,6 +527,10 @@
   .cart-thumb {
     width: 56px; height: 56px; background: var(--surface-warm);
     border-radius: 6px; display: grid; place-items: center; font-size: 28px;
+    overflow: hidden; flex-shrink: 0;
+  }
+  .cart-thumb img, .ord-line .th img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
   }
   .cart-nm { font-size: 13px; font-weight: 500; line-height: 1.35; }
   .cart-nm .sub { font-size: 11px; color: var(--text-muted); margin-top: 3px; font-weight: 400; }
@@ -632,7 +636,7 @@
   /* Order line preview */
   .ord-line { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); align-items: center; font-size: 12px; }
   .ord-line:last-of-type { border-bottom: 0; }
-  .ord-line .th { width: 36px; height: 36px; background: var(--surface-warm); border-radius: 4px; display: grid; place-items: center; font-size: 18px; }
+  .ord-line .th { width: 36px; height: 36px; background: var(--surface-warm); border-radius: 4px; display: grid; place-items: center; font-size: 18px; overflow: hidden; flex-shrink: 0; }
   .ord-line .nm { flex: 1; }
   .ord-line .nm .sub { font-size: 10px; color: var(--text-muted); }
 
@@ -1734,6 +1738,22 @@
   // =======================================================
   const $ = (id) => document.getElementById(id);
   const money = (n) => { const v = Number(n)||0; return "฿" + v.toLocaleString("th-TH", { minimumFractionDigits: (v%1)?2:0, maximumFractionDigits: 2 }); };
+  // แสดงน้ำหนักให้อ่านง่าย — ต่ำกว่า 1 กก. บอกเป็นกรัม
+  function fmtKg(kg) {
+    const w = Number(kg) || 0;
+    if (w > 0 && w < 1) return Math.round(w * 1000) + " g";
+    return (Math.round(w * 100) / 100) + " kg";
+  }
+
+  // รูปสินค้า + อิโมจิสำรองเมื่อโหลดรูปไม่ขึ้น
+  // หน้าตะกร้า/checkout เดิมโชว์แต่อิโมจิ ไม่เคยดึงรูปจริงมาเลย
+  function productThumb(p) {
+    const icon = (p && p.icon) || '📦';
+    if (!p || !p.cover) return icon;
+    return `<img src="${esc(p.cover)}" alt="${esc(p.name || '')}" loading="lazy"
+      onerror="this.replaceWith(document.createTextNode('${icon}'))">`;
+  }
+
   // ต้องทนกับสินค้าที่หาไม่เจอ / ไม่มีขั้นราคา
   // เดิมพังทันทีถ้า p เป็น undefined หรือ p.tiers ไม่มี
   // → ทั้งหน้าตะกร้าเรนเดอร์ไม่ออก ลูกค้ากดตะกร้าแล้วไม่ขึ้นอะไรเลย
@@ -2946,8 +2966,12 @@
             const each = priceOf(p, item.qty);
             const line = each * item.qty;
             return `<div class="cart-row">
-              <div class="cart-thumb">${p.icon || '📦'}</div>
-              <div class="cart-nm">${esc(p.name || '')}<div class="sub">${item.size ? 'ขนาด: '+esc(item.size)+' · ' : ''}SKU: ${esc(p.id)}</div></div>
+              <div class="cart-thumb">${productThumb(p)}</div>
+              <div class="cart-nm">${esc(p.name || '')}<div class="sub">${item.size ? 'ขนาด: '+esc(item.size)+' · ' : ''}SKU: ${esc(p.id)}${(() => {
+                const w = Number(p.weight) || 0;
+                if (!w) return ' · <span style="color:#b45309">น้ำหนักยังไม่ระบุ (คิด 1 kg)</span>';
+                return ` · ${fmtKg(w)} × ${item.qty} = <b>${fmtKg(w * item.qty)}</b>`;
+              })()}</div></div>
               <div class="cart-p mono">${money(each)}</div>
               <div class="qty-ctrl">
                 <button onclick="updateCartQty(${idx},-1);render()">−</button>
@@ -2968,7 +2992,12 @@
           ${S.coupon === "NEW100" ? `<div class="coupon-active">✓ ใช้โค้ด <b>NEW100</b> แล้ว (−฿100)</div>` : ''}
           <div class="summ-row"><span>ยอดสินค้า (${cartCount()})</span><span class="mono">${money(sub)}</span></div>
           ${disc > 0 ? `<div class="summ-row"><span>คูปอง</span><span class="mono">−${money(disc)}</span></div>` : ''}
+          <div class="summ-row"><span>น้ำหนักรวม</span><span class="mono">${fmtKg(cartWeight())}</span></div>
           <div class="summ-row ${ship===0?'free':''}"><span>ค่าจัดส่ง</span><span class="mono">${ship===0?'ฟรี':money(ship)}</span></div>
+          ${S.coShipping !== 'pickup' ? `<div style="font-size:11px;color:var(--text-muted);margin:-4px 0 8px;line-height:1.6">
+            คิดจากน้ำหนักรวม · ปลายทาง ${esc(ZONE_LABEL[shipZoneOf(currentShipProvince())])}
+            ${currentShipProvince() ? '' : '<br>(ยังไม่ระบุจังหวัด — คิดเรตภาคกลางไว้ก่อน ปรับตามจริงตอน checkout)'}
+          </div>` : ''}
           <div class="summ-row"><span>VAT (7%)</span><span class="mono" style="font-size:11px">รวมแล้ว</span></div>
           <div class="summ-total"><b>รวมทั้งสิ้น</b><b class="tot">${money(tot)}</b></div>
           <button class="btn btn-primary btn-block btn-big" style="margin-top:14px" onclick="go('/checkout')">ดำเนินการชำระเงิน →</button>
@@ -3135,7 +3164,7 @@
             const line = priceOf(p, item.qty) * item.qty;
             const nm = String(p.name || '');
             return `<div class="ord-line">
-              <div class="th">${p.icon || '📦'}</div>
+              <div class="th">${productThumb(p)}</div>
               <div class="nm">${esc(nm.length > 26 ? nm.slice(0,26) + '...' : nm)}<div class="sub">×${item.qty}${item.size?' · '+esc(item.size):''}</div></div>
               <div class="mono">${money(line)}</div>
             </div>`;
@@ -3243,7 +3272,7 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 68;
+  const APP_VERSION = 70;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
   const NEED_BACKEND = 47;
