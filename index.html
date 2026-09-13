@@ -2100,15 +2100,44 @@
     setTimeout(() => go('/cart'), 250);
   }
 
-  // Promo banner rotator (แบบ Shopee iPhone 18)
-  function renderPromoBanner() {
+  // ============================================================
+  // Banner rotator
+  // เดิมเขียนว่า "rotator" แต่โชว์ banners[0] ตัวเดียวตลอด ส่วนจุดข้างล่าง
+  // เป็นแค่ของตกแต่ง ไม่เคยเปลี่ยนเลย → แอดมินเพิ่ม banner ที่ 2,3 แล้วไม่เห็นอะไรขึ้น
+  // ============================================================
+  let _bannerIdx = 0;
+  let _bannerTimer = null;
+
+  function bannerGoTo(i, manual) {
+    const n = (S.banners || []).length;
+    if (!n) return;
+    _bannerIdx = ((i % n) + n) % n;
+    const host = document.getElementById('promo-banner');
+    if (host) host.innerHTML = bannerSlideHtml();
+    if (manual) startBannerRotation();   // กดเองแล้วนับเวลาใหม่
+  }
+
+  function startBannerRotation() {
+    if (_bannerTimer) clearInterval(_bannerTimer);
+    if ((S.banners || []).length < 2) return;
+    _bannerTimer = setInterval(() => {
+      // ไม่ต้องหมุนตอนผู้ใช้ไม่ได้ดูแท็บนี้
+      if (document.visibilityState !== 'visible') return;
+      if (!document.getElementById('promo-banner')) { clearInterval(_bannerTimer); _bannerTimer = null; return; }
+      bannerGoTo(_bannerIdx + 1);
+    }, 5000);
+  }
+
+  function bannerSlideHtml() {
     const banners = S.banners || [];
-    if (banners.length === 0) return '';
-    const b = banners[0]; // แสดงตัวแรก (rotator ทำต่อได้)
+    if (!banners.length) return '';
+    if (_bannerIdx >= banners.length) _bannerIdx = 0;
+    const b = banners[_bannerIdx];
     return `
-      <section style="margin:16px 0;position:relative;border-radius:14px;overflow:hidden;box-shadow:var(--shadow);cursor:pointer" onclick="${b.link?`window.open('${esc(b.link)}','_blank')`:''}">
+      <div style="position:relative;border-radius:14px;overflow:hidden;box-shadow:var(--shadow);${b.link?'cursor:pointer':''}"
+        ${b.link ? `onclick="openBannerLink(${_bannerIdx})"` : ''}>
         ${b.image ? `<img src="${esc(b.image)}" alt="${esc(b.title||'')}" style="width:100%;display:block;object-fit:cover">` : `
-          <div style="background:linear-gradient(135deg,${b.color1||'#EE4D2D'},${b.color2||'#ff6b3d'});padding:32px 24px;color:#fff">
+          <div style="background:linear-gradient(135deg,${esc(b.color1||'#AB2739')},${esc(b.color2||'#7A1929')});padding:32px 24px;color:#fff">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap">
               <div style="flex:1;min-width:200px">
                 <div style="font-size:11px;opacity:.9;font-weight:700;letter-spacing:.08em">${esc((b.eyebrow||'PROMO').toUpperCase())}</div>
@@ -2120,11 +2149,34 @@
             </div>
           </div>
         `}
-        ${banners.length > 1 ? `<div style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:4px">
-          ${banners.map((_,i)=>`<span style="width:6px;height:6px;border-radius:50%;background:${i===0?'#fff':'rgba(255,255,255,.5)'}"></span>`).join('')}
-        </div>`:''}
-      </section>
-    `;
+        ${banners.length > 1 ? `
+          <div style="position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:6px">
+            ${banners.map((_,i)=>`<span onclick="event.stopPropagation();bannerGoTo(${i},true)"
+              style="width:9px;height:9px;border-radius:50%;cursor:pointer;transition:background .2s;background:${i===_bannerIdx?'#fff':'rgba(255,255,255,.45)'};box-shadow:0 1px 3px rgba(0,0,0,.4)"></span>`).join('')}
+          </div>
+          <button onclick="event.stopPropagation();bannerGoTo(${_bannerIdx-1},true)" aria-label="ก่อนหน้า"
+            style="position:absolute;left:8px;top:50%;transform:translateY(-50%);width:32px;height:32px;border-radius:50%;border:none;background:rgba(0,0,0,.35);color:#fff;font-size:16px;cursor:pointer">‹</button>
+          <button onclick="event.stopPropagation();bannerGoTo(${_bannerIdx+1},true)" aria-label="ถัดไป"
+            style="position:absolute;right:8px;top:50%;transform:translateY(-50%);width:32px;height:32px;border-radius:50%;border:none;background:rgba(0,0,0,.35);color:#fff;font-size:16px;cursor:pointer">›</button>
+        `:''}
+      </div>`;
+  }
+
+  function openBannerLink(i) {
+    const b = (S.banners || [])[i];
+    if (!b || !b.link) return;
+    // ลิงก์ภายในเว็บ (#/...) ให้เปลี่ยนหน้าเลย ไม่ต้องเปิดแท็บใหม่
+    if (b.link.indexOf('#/') === 0 || b.link.indexOf('/#/') === 0) {
+      go(b.link.slice(b.link.indexOf('#/') + 1));
+    } else {
+      window.open(b.link, '_blank', 'noopener');
+    }
+  }
+
+  function renderPromoBanner() {
+    if (!(S.banners || []).length) return '';
+    setTimeout(startBannerRotation, 0);
+    return `<section id="promo-banner" style="margin:16px 0">${bannerSlideHtml()}</section>`;
   }
 
   // TikTok video grid (embed จาก URL) — คลิปทั้งหมด (ไม่แยก live)
@@ -2849,7 +2901,10 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 51;
+  const APP_VERSION = 53;
+  // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
+  // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
+  const NEED_BACKEND = 43;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -3597,8 +3652,26 @@
     syncMyAccountToSheet().catch(()=>{});
   }
 
+  // เช็คเวอร์ชัน backend เงียบๆ ตอนเปิดหน้าแอดมิน — จะได้ไม่ต้องรอให้กด "ตรวจสอบระบบ" ถึงจะรู้
+  async function checkBackendVersion() {
+    if (!S.sheetApiUrl) return;
+    try {
+      const p = await apiCall('ping', {}, false, 15000);
+      const v = (p && p.version) || 0;
+      if (S._backendVer !== v) { S._backendVer = v; render(); }
+    } catch (e) {}
+  }
+
   function adminPageHeader(title, icon, extra = '') {
+    if (S._backendVer === undefined && S.sheetApiUrl) { S._backendVer = null; checkBackendVersion(); }
+    const stale = S._backendVer && S._backendVer < NEED_BACKEND;
     return `
+      ${stale ? `
+        <div style="background:#fde8e8;border:2px solid #DC2626;padding:12px 14px;border-radius:10px;margin-bottom:14px;font-size:13px;color:#b02a2a;line-height:1.7">
+          🚨 <b>Apps Script ยังเป็น v${S._backendVer} — ต้อง deploy v${NEED_BACKEND}</b><br>
+          ลูกค้าที่ไม่มีชื่อจะไม่โผล่ในรายชื่อ และหน้าเว็บโหลดช้ากว่าที่ควร จนกว่าจะ deploy
+          <a onclick="go('/admin/settings')" style="color:#DC2626;cursor:pointer;font-weight:800;text-decoration:underline;margin-left:6px">→ ดูวิธีทำ</a>
+        </div>` : ''}
       <div class="admin-header">
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
           <div style="font-size:24px">${icon || '🔧'}</div>
@@ -3897,7 +3970,7 @@
         <button class="btn btn-primary" onclick="addBanner()">➕ Banner</button>
         <button class="btn btn-primary" onclick="addTiktokVideo()" style="background:#000">➕ TikTok</button>
         <button class="btn btn-outline" onclick="pullPromosFromSheet().then(()=>render())">🔄 Refresh</button>
-        <button class="btn btn-outline" onclick="savePromosToSheet().then(()=>toast('↑ sync สำเร็จ'))">↑ Push</button>
+        <button class="btn btn-outline" onclick="savePromosToSheet().then(ok=>toast(ok?'↑ sync สำเร็จ':'❌ sync ไม่สำเร็จ'))">↑ Push</button>
       `)}
       <div style="background:#e6f4ff;border:1px solid #91caff;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px">
         💡 Banner + คลิป auto sync กับ Google Sheet (tab <b>promos</b>) · ทุก browser เห็นเหมือนกัน · ลูกค้าที่หน้าแรกก็เห็น
@@ -3909,14 +3982,24 @@
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">แบบ Shopee iPhone banner · ใช้ image URL หรือ text-only + gradient</div>
           ${banners.length===0?'<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">ยังไม่มี banner — กด "➕ Banner"</div>':
           banners.map((b,i) => `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;display:flex;gap:10px;align-items:center">
-            ${b.image?`<img src="${esc(b.image)}" style="width:60px;height:60px;object-fit:cover;border-radius:6px">`:`<div style="width:60px;height:60px;border-radius:6px;background:linear-gradient(135deg,${b.color1||'#EE4D2D'},${b.color2||'#ff6b3d'});display:grid;place-items:center;font-size:24px">${b.emoji||'📢'}</div>`}
-            <div style="flex:1">
-              <div style="font-weight:700;font-size:13px">${esc(b.title||'ไม่มีชื่อ')}</div>
+            ${b.image?`<img src="${esc(b.image)}" style="width:60px;height:60px;object-fit:cover;border-radius:6px" onerror="this.replaceWith(Object.assign(document.createElement('div'),{textContent:'🖼️',style:'width:60px;height:60px;border-radius:6px;background:#eee;display:grid;place-items:center;font-size:20px'}))">`:`<div style="width:60px;height:60px;border-radius:6px;background:linear-gradient(135deg,${esc(b.color1||'#AB2739')},${esc(b.color2||'#7A1929')});display:grid;place-items:center;font-size:24px">${b.emoji||'📢'}</div>`}
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:13px">${esc(b.title||'ไม่มีชื่อ')}
+                ${i===0?'<span style="background:var(--brand);color:#fff;font-size:9px;padding:1px 6px;border-radius:3px;margin-left:4px">แสดงก่อน</span>':''}</div>
               <div style="font-size:11px;color:var(--text-muted)">${esc((b.subtitle||'').slice(0,60))}</div>
+              ${b.image && !/^https?:\/\//i.test(b.image) ? `<div style="font-size:10px;color:#b45309;margin-top:2px">⚠ URL รูปต้องขึ้นต้นด้วย https://</div>` : ''}
+              ${b.link ? `<div style="font-size:10px;color:var(--text-muted);word-break:break-all">🔗 ${esc(b.link.slice(0,50))}</div>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <button class="admin-btn" onclick="moveBanner(${i},-1)" title="เลื่อนขึ้น" ${i===0?'disabled style="opacity:.3"':''}>↑</button>
+              <button class="admin-btn" onclick="moveBanner(${i},1)" title="เลื่อนลง" ${i===banners.length-1?'disabled style="opacity:.3"':''}>↓</button>
             </div>
             <button class="admin-btn" onclick="editBanner(${i})" title="แก้ไข">✏️</button>
             <button class="admin-btn" onclick="deleteBanner(${i})" title="ลบ">🗑️</button>
           </div>`).join('')}
+          ${banners.length>1?`<div style="font-size:11px;color:var(--text-muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+            💡 หน้าแรกจะหมุนสลับ banner ทุก 5 วินาที · ลูกค้ากดจุดหรือลูกศรเลื่อนเองได้
+          </div>`:''}
         </div>
 
         <div class="co-card" style="margin:0">
@@ -3939,29 +4022,84 @@
     `;
   }
 
-  function addBanner() {
-    const title = prompt("หัวข้อ banner:","โปรใหญ่ของเดือน"); if (!title) return;
-    const subtitle = prompt("คำอธิบายรอง:","ลดสูงสุด 50%")||'';
-    const cta = prompt("ข้อความปุ่ม:","ช้อปเลย")||'';
-    const link = prompt("URL เมื่อคลิก (optional):","/#/cat/foodbox")||'';
-    const image = prompt("URL รูป (ปล่อยว่าง = ใช้ gradient):","")||'';
-    const emoji = image?'':prompt("Emoji ใหญ่ (ถ้าไม่มีรูป):","📦")||'📦';
+  // ============================================================
+  // แก้ 2 บั๊กในหน้าจัดการ banner
+  //
+  // 1) กด Cancel ใน prompt คืนค่า null แล้วโค้ดเดิมใช้ ||'' → ข้อมูลเดิมถูกลบทิ้ง
+  //    เช่นแก้แค่หัวข้อ แต่กด Cancel ที่ช่องรูป → รูปหายเลย
+  //    ตอนนี้ Cancel = ไม่เปลี่ยนค่าเดิม
+  //
+  // 2) ลบ/แก้ด้วยเลขลำดับ (index) แต่ระหว่างนั้น sync เบื้องหลังอาจสลับลำดับ
+  //    ทำให้กดลบอันนึงแต่หายอีกอัน → เปลี่ยนมาอ้างด้วย id ที่ตายตัว
+  // ============================================================
+  function bannerId() { return 'BN' + Date.now() + Math.floor(Math.random()*1000); }
+
+  // ถาม แต่กด Cancel = คงค่าเดิม
+  function askKeep(label, current) {
+    const v = prompt(label, current == null ? '' : current);
+    return v === null ? (current || '') : v;
+  }
+
+  function findBannerIdx(id) { return (S.banners||[]).findIndex(b => b.id === id); }
+
+  async function saveBanners(msg) {
+    saveState();
+    saveSynced('tiktokVideos','banners');
+    render();
+    const ok = await savePromosToSheet();
+    toast(ok ? (msg || "✓ บันทึกแล้ว") : "❌ ยังไม่ขึ้น Sheet — กด ↑ Push อีกครั้ง");
+  }
+
+  async function addBanner() {
+    const title = prompt("หัวข้อ banner:","โปรใหญ่ของเดือน"); if (title === null) return;
+    const subtitle = askKeep("คำอธิบายรอง:","ลดสูงสุด 50%");
+    const cta = askKeep("ข้อความปุ่ม:","ช้อปเลย");
+    const link = askKeep("URL เมื่อคลิก (ปล่อยว่างได้):","");
+    const image = askKeep("URL รูป (ปล่อยว่าง = ใช้พื้นหลังสี):","");
+    const emoji = image ? '' : askKeep("Emoji ใหญ่ (ถ้าไม่มีรูป):","📦");
     S.banners = S.banners || [];
-    S.banners.push({ title, subtitle, cta, link, image, emoji, color1:'#AB2739', color2:'#7A1929' });
-    saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet(); toast("✓ เพิ่ม banner (sync ขึ้น Sheet)"); render();
+    S.banners.push({ id: bannerId(), title, subtitle, cta, link, image, emoji,
+                     color1:'#AB2739', color2:'#7A1929' });
+    await saveBanners("✓ เพิ่ม banner แล้ว");
   }
-  function editBanner(i) {
-    const b = S.banners[i]; if (!b) return;
-    const title = prompt("หัวข้อ:", b.title); if (title===null) return; b.title = title;
-    b.subtitle = prompt("คำอธิบาย:", b.subtitle)||'';
-    b.cta = prompt("ปุ่ม CTA:", b.cta)||'';
-    b.link = prompt("URL:", b.link)||'';
-    b.image = prompt("URL รูป:", b.image)||'';
-    saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet(); toast("✓ อัพเดต"); render();
+
+  async function editBanner(i) {
+    const b = (S.banners||[])[i]; if (!b) return;
+    if (!b.id) b.id = bannerId();
+    const id = b.id;
+
+    const title = prompt("หัวข้อ:", b.title); if (title === null) return;  // Cancel ที่ช่องแรก = ยกเลิกทั้งหมด
+    const subtitle = askKeep("คำอธิบาย:", b.subtitle);
+    const cta      = askKeep("ปุ่ม CTA:", b.cta);
+    const link     = askKeep("URL เมื่อคลิก:", b.link);
+    const image    = askKeep("URL รูป:", b.image);
+    const emoji    = image ? (b.emoji||'') : askKeep("Emoji (ถ้าไม่มีรูป):", b.emoji || '📦');
+
+    // หาใหม่ตอนจะเขียนจริง — ระหว่างที่กรอก อาจมี sync เข้ามาสลับลำดับ
+    const idx = findBannerIdx(id);
+    if (idx < 0) { toast("⚠️ banner นี้ถูกลบไปแล้วจากอีกเครื่อง"); render(); return; }
+    Object.assign(S.banners[idx], { title, subtitle, cta, link, image, emoji });
+    await saveBanners("✓ อัพเดต banner แล้ว");
   }
-  function deleteBanner(i) {
-    if (!confirm("ลบ banner นี้?")) return;
-    S.banners.splice(i,1); saveState(); saveSynced('tiktokVideos','banners'); savePromosToSheet(); render();
+
+  async function deleteBanner(i) {
+    const b = (S.banners||[])[i]; if (!b) return;
+    if (!confirm(`ลบ banner "${b.title||'ไม่มีชื่อ'}" ?`)) return;
+    const id = b.id;
+    const idx = id ? findBannerIdx(id) : i;
+    if (idx < 0) { toast("⚠️ ถูกลบไปแล้ว"); render(); return; }
+    S.banners.splice(idx, 1);
+    if (_bannerIdx >= S.banners.length) _bannerIdx = 0;
+    await saveBanners("✓ ลบ banner แล้ว");
+  }
+
+  // เลื่อนลำดับ banner — ตัวแรกคือตัวที่ลูกค้าเห็นก่อน
+  async function moveBanner(i, dir) {
+    const list = S.banners || [];
+    const j = i + dir;
+    if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    await saveBanners("✓ สลับลำดับแล้ว");
   }
 
   let _lastTiktokError = '';
@@ -4520,10 +4658,11 @@
     // อ่านเวอร์ชัน backend จาก ping
     let backendVer = null;
     try { const p = await apiCall('ping'); backendVer = (p && p.version) || null; } catch(e){}
-    const EXPECTED_BACKEND = 41;
+    const EXPECTED_BACKEND = NEED_BACKEND;
 
     const failed = results.filter(r => !r.ok);
-    const allOk = failed.length === 0 && backendVer === EXPECTED_BACKEND;
+    const backendOk = backendVer !== null && backendVer >= EXPECTED_BACKEND;
+    const allOk = failed.length === 0 && backendOk;
     // หา version ต่ำสุดที่ fail → บอกว่า deploy ค้างอยู่รุ่นไหน
     const oldestFail = failed.length ? failed[0].need : null;
 
@@ -4537,13 +4676,13 @@
         <div style="font-weight:800;font-size:15px;margin-bottom:6px;color:${allOk?'#0B7A3E':'#7a5a00'}">
           ${allOk ? '✅ Backend เป็นเวอร์ชันล่าสุด — ทุกฟีเจอร์พร้อมใช้'
                   : (backendVer === null ? '⚠️ Backend เป็นเวอร์ชันเก่ามาก (ไม่บอกเวอร์ชัน)'
-                     : backendVer !== EXPECTED_BACKEND ? `⚠️ Backend เป็น v${backendVer} — ต้องการ v${EXPECTED_BACKEND}`
+                     : !backendOk ? `⚠️ Apps Script ยังเป็น v${backendVer} — ต้อง deploy v${EXPECTED_BACKEND}`
                      : `⚠️ มี ${failed.length} ฟีเจอร์ใช้ไม่ได้`)}
         </div>
         <div style="font-size:12px;margin-bottom:10px;color:var(--text-muted);font-family:monospace">
           index.html ที่ browser โหลด: <b>v${APP_VERSION}</b><br>
           Code.gs ที่ deploy: <b>${backendVer ? 'v'+backendVer : 'เก่ากว่า v37'}</b> · ต้องการ: <b>v${EXPECTED_BACKEND}</b>
-          ${backendVer === EXPECTED_BACKEND ? ' <span style="color:#0B7A3E">✓ ตรง</span>' : ' <span style="color:#DC2626">✗ ไม่ตรง</span>'}
+          ${backendOk ? ' <span style="color:#0B7A3E">✓ ตรง</span>' : ' <span style="color:#DC2626">✗ ยังไม่ได้ deploy</span>'}
         </div>
         <table style="width:100%;font-size:13px;border-collapse:collapse">
           ${results.map(r => `<tr style="border-bottom:1px solid rgba(0,0,0,.06)">
@@ -4554,7 +4693,7 @@
             <td style="padding:6px 0;text-align:right;font-size:11px;color:var(--text-muted);vertical-align:top;white-space:nowrap">${r.ok?'ใช้ได้':'ต้องการ '+r.need}</td>
           </tr>`).join('')}
         </table>
-        ${allOk ? '' : (backendVer === EXPECTED_BACKEND ? `
+        ${allOk ? '' : (backendOk ? `
           <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,0,0,.1);font-size:13px;color:#0B7A3E;line-height:1.75">
             ✅ <b>Code.gs เป็นเวอร์ชันถูกต้องแล้ว (v${backendVer})</b> — ไม่ต้อง deploy ใหม่<br>
             แถวที่ ❌ มักเกิดจาก <b>หมดเวลารอ</b> เพราะ Apps Script ทำงานทีละคำขอ<br>
@@ -4562,13 +4701,22 @@
             👉 กด <b>🔬 ตรวจสอบระบบ</b> ซ้ำอีกครั้ง มักจะผ่านครบ
           </div>` : `
           <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,0,0,.1);font-size:13px;color:#7a5a00;line-height:1.7">
-            <b>วิธีแก้ — Deploy version ใหม่:</b><br>
+            <div style="background:#fde8e8;border:1px solid #f5a3a3;padding:10px 12px;border-radius:8px;margin-bottom:12px;color:#b02a2a">
+              <b>Apps Script ยังค้างอยู่ที่ v${backendVer||'เก่า'}</b> — ของที่ยังใช้ไม่ได้จนกว่าจะ deploy v${EXPECTED_BACKEND}:<br>
+              • ลูกค้าที่<b>ไม่มีชื่อ</b> (สมัครผ่าน LINE / กรอกแต่เบอร์) จะไม่โผล่ในรายชื่อ<br>
+              • ปุ่ม <b>🧹 ลบแถวทดสอบ</b> ออกจาก tab customers<br>
+              • ปุ่ม <b>✍️ ทดสอบเขียน</b> ยังเขียนลูกค้าปลอมลง tab customers (v43 ย้ายไป tab _selftest)<br>
+              • <b>โหลดรวดเดียว</b> — หน้าเว็บต้องยิง 4 คำขอต่อคิวกัน เลยโหลดช้า<br>
+              • SlipOK API key ยังหลุดออกทาง URL สาธารณะได้
+            </div>
+            <b>วิธี deploy (ทำครั้งเดียว ~1 นาที):</b><br>
             1. Google Sheet → <b>Extensions → Apps Script</b><br>
-            2. paste <b>Code.gs</b> ล่าสุด → <b>Ctrl+S</b><br>
-            3. <b>Deploy</b> ▾ → <b>Manage deployments</b> (ไม่ใช่ New deployment)<br>
+            2. ลบโค้ดเดิมทิ้งทั้งหมด → paste <b>Code.gs v${EXPECTED_BACKEND}</b> → <b>Ctrl+S</b><br>
+            3. <b>Deploy</b> ▾ → <b>Manage deployments</b> <span style="color:#b02a2a">(ห้ามกด New deployment — จะได้ URL ใหม่)</span><br>
             4. คลิก <b>✏️ ดินสอ</b> → Version → <b>"New version"</b><br>
             5. กด <b>Deploy</b> → รอ 10 วิ<br>
-            6. กลับมากด <b>🔬 ตรวจสอบระบบ</b> อีกครั้ง — ต้องขึ้น ✅ ครบ
+            6. กลับมากด <b>🔬 ตรวจสอบระบบ</b> — ต้องขึ้น <b>v${EXPECTED_BACKEND}</b> และ ✅ ครบ<br>
+            <span style="font-size:12px;opacity:.8">เช็คว่า paste ถูกไฟล์: บรรทัดบนสุดของ Code.gs ต้องมี <code>BACKEND_VERSION = ${EXPECTED_BACKEND}</code></span>
           </div>`)}
       </div>`);
   }
