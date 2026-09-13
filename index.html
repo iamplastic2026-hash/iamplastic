@@ -945,7 +945,9 @@
     .search-btn span { display: none; }
     .search-btn { padding: 8px 12px; }
   }
-</style>
+
+    @keyframes syncSlide { 0% { background-position: -40% 0; } 100% { background-position: 140% 0; } }
+  </style>
 
 <div class="announce">
   🎁 ส่งฟรีเมื่อสั่งครบ <b>฿1,500</b> · ออกใบกำกับภาษีได้ · โทร <b>02-xxx-xxxx</b> · <span style="color:var(--wholesale)"><b>โค้ด NEW100</b> ลด ฿100 สั่งแรก</span>
@@ -1104,6 +1106,7 @@
     wishlist: safeGet("iamplastic.wishlist", []),
     sheetCoupons: safeGet("iamplastic.sheetCoupons", []),
     sheetReviews: safeGet("iamplastic.sheetReviews", null),
+    promosPendingPush: safeGet("iamplastic.promosPendingPush", false),
     tiktokAutoplay: safeGet("iamplastic.tiktokAutoplay", true),
     sheetLastSync: safeGet("iamplastic.sheetLastSync", 0),
     autoSync: safeGet("iamplastic.autoSync", true),
@@ -1190,7 +1193,7 @@
     "adminAuth", "adminUser", "adminPassHash",
     "productOverrides", "deletedProducts", "newProducts",
     "user", "registeredUsers", "lineProfile",
-    "tiktokAutoplay", "autoSync",
+    "tiktokAutoplay", "autoSync", "promosPendingPush",
   ];
 
   const SYNCED_KEYS = [
@@ -2150,9 +2153,26 @@
     `;
   }
   // ดึงเลข video id จาก URL TikTok (ใช้สร้าง embed player)
+  // แกะเลข video id จากลิงก์ TikTok หลายรูปแบบ
+  // ลิงก์สั้น vt.tiktok.com แกะฝั่งเว็บไม่ได้ (ต้องตามredirect) — ต้องให้ backend แปลงก่อน
   function tiktokVideoId(url) {
-    const m = String(url||'').match(/\/video\/(\d+)/);
-    return m ? m[1] : null;
+    const u = String(url || '').trim();
+    if (/^\d{8,}$/.test(u)) return u;                       // ใส่มาแต่ตัวเลข
+    const pats = [
+      /\/video\/(\d+)/,        // .../@user/video/123
+      /\/photo\/(\d+)/,        // โพสต์รูป
+      /\/embed\/v2\/(\d+)/,    // ลิงก์ embed
+      /\/v\/(\d+)/,            // m.tiktok.com/v/123.html
+      /[?&]item_id=(\d+)/,
+      /[?&]video_id=(\d+)/,
+    ];
+    for (const re of pats) { const m = u.match(re); if (m) return m[1]; }
+    return null;
+  }
+
+  // ลิงก์สั้นที่ยังไม่ได้แปลง = เล่นในเว็บไม่ได้ ต้องกด "ซ่อมลิงก์"
+  function isShortTiktokLink(url) {
+    return /(vt|vm)\.tiktok\.com\//i.test(String(url||''));
   }
 
   function renderTiktokCard(v, idx) {
@@ -2166,15 +2186,15 @@
     // ถ้าไม่มี แต่เปิด autoplay + มี video id → โหลด TikTok player ตอนเลื่อนมาเห็น
     let media;
     if (preview) {
-      media = `<video src="${preview}" autoplay muted loop playsinline preload="metadata"
+      media = `<video src="${preview}" ${auto?'autoplay':''} muted loop playsinline preload="metadata"
         ${thumb?`poster="${thumb}"`:''}
         style="width:100%;height:100%;object-fit:cover;display:block"></video>`;
-    } else if (auto && vid) {
-      media = `<div class="tt-auto" data-ttid="${esc(vid)}" style="width:100%;height:100%;position:relative">
-        ${thumb ? `<img src="${thumb}" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.style.display='none'">`
-                : `<div style="width:100%;height:100%;display:grid;place-items:center;background:linear-gradient(135deg,#1a1a1a,#333);color:#fff;font-size:32px">🎵</div>`}
-      </div>`;
     } else {
+      // หมายเหตุสำคัญ: TikTok embed player "เล่นเองอัตโนมัติไม่ได้"
+      // พารามิเตอร์ autoplay=1&muted=1 ที่เคยใส่ไว้ TikTok ไม่รองรับ — ไม่มีผลอะไรเลย
+      // ของเดิมจึงได้ player ที่ค้างนิ่ง แถมใส่ pointer-events:none ทำให้กดปุ่มเล่นก็ไม่ได้
+      // → แสดงรูปปก + ปุ่ม ▶ แทน กดแล้วเปิด player เต็มจอซึ่งเล่นได้จริง
+      // ถ้าอยากให้ "เล่นวนเองแบบไม่มีเสียง" ต้องอัปวิดีโอตัวอย่าง (previewVideo) ซึ่งรองรับอยู่แล้ว
       media = thumb ? `<img src="${thumb}" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.style.display='none'">`
                     : `<div style="width:100%;height:100%;display:grid;place-items:center;background:linear-gradient(135deg,#1a1a1a,#333);color:#fff;font-size:32px">🎵</div>`;
     }
@@ -2196,31 +2216,9 @@
     `;
   }
 
-  // เปลี่ยนรูปนิ่งเป็น TikTok player ตอนเลื่อนมาเห็น (ประหยัดเน็ต — ไม่โหลดพร้อมกันทุกอัน)
-  let _ttObserver = null;
-  function setupTiktokAutoplay() {
-    if (!('IntersectionObserver' in window)) return;
-    const nodes = document.querySelectorAll('.tt-auto:not([data-loaded])');
-    if (!nodes.length) return;
-    if (_ttObserver) _ttObserver.disconnect();
-    let loaded = 0;
-    _ttObserver = new IntersectionObserver(entries => {
-      entries.forEach(en => {
-        if (!en.isIntersecting) return;
-        const el = en.target;
-        if (el.dataset.loaded) return;
-        if (loaded >= 4) return; // จำกัด 4 ตัวพร้อมกัน กันหน้าหนัก
-        el.dataset.loaded = '1';
-        loaded++;
-        const id = el.dataset.ttid;
-        el.innerHTML = `<iframe src="https://www.tiktok.com/embed/v2/${id}?autoplay=1&muted=1&controls=0"
-          style="width:100%;height:100%;border:0;pointer-events:none"
-          allow="autoplay; encrypted-media" loading="lazy" scrolling="no"></iframe>`;
-        _ttObserver.unobserve(el);
-      });
-    }, { rootMargin: '100px' });
-    nodes.forEach(n => _ttObserver.observe(n));
-  }
+  // เดิมมี IntersectionObserver คอยสลับรูปเป็น TikTok iframe ตอนเลื่อนมาเห็น
+  // ถอดออกแล้ว เพราะ TikTok embed เล่นเองไม่ได้ — ได้ player ค้างนิ่งเปล่าๆ
+  function setupTiktokAutoplay() { /* ไม่ใช้แล้ว */ }
 
   // เล่นคลิปในหน้าเว็บ (TikTok embed player)
   function playTiktok(url) {
@@ -2240,12 +2238,20 @@
     el.innerHTML = `
       <button onclick="closeTiktok()" aria-label="ปิด" style="position:absolute;top:16px;right:16px;width:42px;height:42px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;font-size:20px;cursor:pointer">✕</button>
       <div style="width:100%;max-width:340px;aspect-ratio:9/16;max-height:90vh;background:#000;border-radius:12px;overflow:hidden" onclick="event.stopPropagation()">
-        <iframe src="https://www.tiktok.com/embed/v2/${esc(vid)}"
-          style="width:100%;height:100%;border:0" allow="autoplay; encrypted-media; fullscreen"
-          allowfullscreen loading="lazy"></iframe>
+        <iframe src="https://www.tiktok.com/embed/v2/${esc(vid)}?autoplay=1"
+          style="width:100%;height:100%;border:0" allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+          allowfullscreen></iframe>
+      </div>
+      <div id="tt-fallback" style="display:none;position:absolute;bottom:70px;left:50%;transform:translateX(-50%);color:#fff;font-size:12px;background:rgba(0,0,0,.75);padding:8px 16px;border-radius:8px;text-align:center;max-width:300px;line-height:1.6">
+        ยังไม่ขึ้น? คลิปบางอันเจ้าของตั้งค่าห้ามฝังในเว็บ<br>กดปุ่มข้างล่างเพื่อดูใน TikTok
       </div>
       <a href="${esc(url)}" target="_blank" rel="noopener" style="position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:#fff;font-size:13px;background:rgba(255,255,255,.15);padding:8px 18px;border-radius:99px;text-decoration:none">เปิดใน TikTok ↗</a>
     `;
+    // บางเครือข่าย/บางคลิป TikTok ไม่ยอมให้ฝัง — กันผู้ใช้นั่งมองจอดำ
+    setTimeout(() => {
+      const box = document.getElementById('tt-fallback');
+      if (box) box.style.display = 'block';
+    }, 5000);
     el.onclick = (e) => { if (e.target === el) closeTiktok(); };
     document.body.style.overflow = 'hidden';
     _ttEscHandler = (e) => { if (e.key === 'Escape') closeTiktok(); };
@@ -2526,6 +2532,11 @@
   function buyNow(pid) { addFromPd(pid); go('/cart'); }
 
   function viewCart() {
+    // คูปองไม่ดึงตอนเปิดเว็บแล้ว — ดึงตรงนี้ที่เดียว (เบากว่า และเป็นจุดที่ต้องใช้จริง)
+    if (S.sheetApiUrl && S.cart.length && (Date.now()-(S.couponsLastSync||0))>60000) {
+      S.couponsLastSync = Date.now();
+      pullCouponsFromSheet().then(()=>render()).catch(()=>{});
+    }
     if (S.cart.length === 0) {
       return `
         <div class="section-head"><h2>ตะกร้าสินค้า</h2></div>
@@ -2822,7 +2833,7 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 47;
+  const APP_VERSION = 50;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -2865,6 +2876,14 @@
               <button class="btn btn-block btn-big" onclick="loginWithLINE()" style="background:#06C755;color:#fff;border:none">
                 <span style="font-size:18px">💚</span> เข้าสู่ระบบด้วย LINE
               </button>
+              ${isAdmin() && _liffError ? `
+                <div style="margin-top:10px;padding:10px 12px;background:#fde8e8;border:1px solid #f5a3a3;border-radius:8px;font-size:12px;color:#b02a2a;line-height:1.7">
+                  ❌ LIFF เริ่มไม่ขึ้น: <code>${esc(_liffError)}</code><br>
+                  เช็ค 2 อย่างใน LINE Developers → LIFF:<br>
+                  1) <b>LIFF ID</b> ตรงกับที่ใส่ในหน้าตั้งค่า<br>
+                  2) <b>Endpoint URL</b> ต้องเป็น <code>${esc(location.origin + location.pathname)}</code><br>
+                  <span style="opacity:.7">(ข้อความนี้เห็นเฉพาะ admin)</span>
+                </div>` : ''}
             ` : (isAdmin() ? `
               <div style="margin-top:14px;padding:10px 12px;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;font-size:12px;color:#7a5a00">
                 💚 ปุ่ม LINE Login ยังไม่โผล่เพราะยังไม่ได้ตั้ง <b>LIFF ID</b><br>
@@ -3136,6 +3155,27 @@
 
           <div style="display:flex;flex-direction:column;gap:10px">
             <button class="btn btn-primary btn-block btn-big" onclick="doRegister()">${c ? '🏢 สมัครนิติบุคคล' : '👤 สมัครสมาชิก'}</button>
+            ${S.liffId ? `
+              <div style="display:flex;align-items:center;gap:12px;margin:16px 0;color:var(--text-muted);font-size:11px">
+                <div style="flex:1;height:1px;background:var(--border)"></div>หรือสมัครเร็วด้วย<div style="flex:1;height:1px;background:var(--border)"></div>
+              </div>
+              <button class="btn btn-block btn-big" onclick="loginWithLINE()" style="background:#06C755;color:#fff;border:none">
+                <span style="font-size:18px">💚</span> สมัครด้วย LINE
+              </button>
+              <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:8px">
+                ใช้ชื่อและรูปจาก LINE · ที่อยู่กรอกทีหลังตอนสั่งซื้อได้
+              </div>
+              ${isAdmin() && _liffError ? `
+                <div style="margin-top:10px;padding:10px 12px;background:#fde8e8;border:1px solid #f5a3a3;border-radius:8px;font-size:12px;color:#b02a2a;line-height:1.7">
+                  ❌ LIFF เริ่มไม่ขึ้น: <code>${esc(_liffError)}</code>
+                  <span style="opacity:.7">(เห็นเฉพาะ admin)</span>
+                </div>` : ''}
+            ` : (isAdmin() ? `
+              <div style="margin-top:14px;padding:10px 12px;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;font-size:12px;color:#7a5a00">
+                💚 ปุ่ม "สมัครด้วย LINE" ยังไม่โผล่เพราะยังไม่ได้ตั้ง <b>LIFF ID</b><br>
+                <a onclick="go('/admin/settings')" style="color:var(--brand);cursor:pointer;font-weight:700">→ ไปตั้งค่า</a>
+                <span style="opacity:.6">(เห็นเฉพาะ admin)</span>
+              </div>` : '')}
             <div style="text-align:center;font-size:12px;color:var(--text-muted)">
               มีบัญชีอยู่แล้ว? <a onclick="go('/login')" style="color:var(--brand);cursor:pointer;font-weight:700">เข้าสู่ระบบ</a>
             </div>
@@ -3404,22 +3444,41 @@
   }
 
   // Auto-load products from Sheet on page load
+  // แถบบางๆ บนสุดตอนกำลังดึงข้อมูลจาก Sheet — จะได้รู้ว่า "กำลังโหลด" ไม่ใช่ "ค้าง"
+  function setSyncing(on) {
+    let el = document.getElementById('sync-bar');
+    if (on) {
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'sync-bar';
+        el.style.cssText = 'position:fixed;left:0;top:0;height:3px;width:100%;z-index:3002;background:linear-gradient(90deg,transparent,#AB2739,transparent);background-size:40% 100%;background-repeat:no-repeat;animation:syncSlide 1.1s linear infinite;pointer-events:none';
+        document.body.appendChild(el);
+      }
+    } else if (el) {
+      el.remove();
+    }
+  }
+
   async function autoLoadFromSheet() {
     if (!S.sheetApiUrl) return;
 
-    // ของเบา (คลิป / ตั้งค่า / คูปอง / รีวิว) — ดึงใหม่ "ทุกครั้ง" ที่เปิดหน้า
-    // เดิมถูก return ทิ้งไปพร้อมกับสินค้า ทำให้แท็บที่เปิดทีหลังเห็นข้อมูลเก่าค้าง
-    pullPromosFromSheet().then(()=>render()).catch(()=>{});
-    pullSettingsFromSheet().then(()=>render()).catch(()=>{});
-    pullCouponsFromSheet().catch(()=>{});
-    pullReviewsFromSheet().catch(()=>{});
-    syncMyAccountToSheet().catch(()=>{});
+    // คลิป + ตั้งค่า + รีวิว รวมเป็น request เดียว (เดิมยิง 4 อันแล้วต่อคิวกัน)
+    // คูปองไม่ดึงตอนเปิดหน้า — ดึงตอนเข้าตะกร้าเท่านั้น
+    setSyncing(true);
+    try {
+      await pullBootstrapFromSheet();
+      render();
 
-    // สินค้า 271 รายการ — หนัก จึงข้ามได้ถ้าเพิ่ง sync มาไม่เกิน 5 นาที
-    const staleness = Date.now() - (S.sheetLastSync || 0);
-    if (staleness < 5 * 60 * 1000 && S.sheetProducts) { render(); return; }
-    await pullProductsFromSheet();
-    render();
+      // สินค้า 271 รายการ — หนัก จึงข้ามได้ถ้าเพิ่ง sync มาไม่เกิน 5 นาที
+      const staleness = Date.now() - (S.sheetLastSync || 0);
+      if (!(staleness < 5 * 60 * 1000 && S.sheetProducts)) {
+        await pullProductsFromSheet();
+      }
+      render();
+    } finally {
+      setSyncing(false);
+    }
+    syncMyAccountToSheet().catch(()=>{});
   }
 
   function adminPageHeader(title, icon, extra = '') {
@@ -3815,11 +3874,44 @@
     const thumbnail = meta?.thumbnail || prompt("ดึงไม่ได้ · paste URL thumbnail:","")||'';
     const author = meta?.author || '';
     const views = prompt("ยอด view (optional · ปล่อยว่างได้):","")||'';
+    // สำคัญ: เก็บ URL เต็มที่ backend แกะให้ ไม่ใช่ลิงก์สั้นที่ paste มา
+    // ไม่งั้น tiktokVideoId() หา id ไม่เจอ → คลิปเล่นในเว็บไม่ได้เลย
+    const finalUrl = (meta && meta.resolved && /\/video\/\d+/.test(meta.resolved)) ? meta.resolved : url;
+    if (isShortTiktokLink(finalUrl)) {
+      toast("⚠️ แปลงลิงก์สั้นไม่สำเร็จ — คลิปนี้จะกดแล้วเด้งไป TikTok แทน");
+    }
     S.tiktokVideos = S.tiktokVideos || [];
-    S.tiktokVideos.unshift({ url, title, thumbnail, author, views, createdAt: new Date().toISOString() });
+    S.tiktokVideos.unshift({ url: finalUrl, title, thumbnail, author, views, createdAt: new Date().toISOString() });
     saveState(); saveSynced('tiktokVideos','banners');
     savePromosToSheet();
     toast(meta ? `✓ เพิ่มคลิป: ${title.slice(0,40)} · sync แล้ว` : "✓ เพิ่มคลิป · sync แล้ว");
+    render();
+  }
+
+  // ซ่อมลิงก์สั้นทั้งหมดรวดเดียว — ลิงก์สั้นเล่นในเว็บไม่ได้ ต้องแปลงเป็น URL เต็มก่อน
+  async function fixAllTiktokLinks() {
+    const list = S.tiktokVideos || [];
+    const broken = list.filter(v => !tiktokVideoId(v.url));
+    if (!broken.length) { toast("✓ ทุกคลิปเล่นในเว็บได้อยู่แล้ว"); return; }
+    let fixed = 0;
+    for (let i = 0; i < broken.length; i++) {
+      const v = broken[i];
+      toast(`⏳ กำลังซ่อม ${i+1}/${broken.length}...`);
+      const meta = await fetchTiktokMeta(v.url);
+      if (meta && meta.resolved && /\/video\/\d+/.test(meta.resolved)) {
+        v.url = meta.resolved;
+        if (meta.thumbnail) v.thumbnail = meta.thumbnail;
+        if (meta.title && !v.title) v.title = meta.title;
+        fixed++;
+      }
+    }
+    if (fixed) {
+      saveState(); saveSynced('tiktokVideos','banners');
+      const ok = await savePromosToSheet();
+      toast(ok ? `✓ ซ่อมได้ ${fixed}/${broken.length} คลิป · บันทึกขึ้น Sheet แล้ว` : `⚠️ ซ่อมได้ ${fixed} แต่ยังไม่ขึ้น Sheet`);
+    } else {
+      toast(`❌ ซ่อมไม่ได้เลย (${broken.length} คลิป) — ${_lastTiktokError||'เช็คการเชื่อมต่อ Sheet'}`);
+    }
     render();
   }
 
@@ -3844,7 +3936,10 @@
       v.url = newUrl;
       toast("⏳ ดึงข้อมูลใหม่...");
       const meta = await fetchTiktokMeta(newUrl);
-      if (meta) { v.title = meta.title; v.thumbnail = meta.thumbnail; v.author = meta.author; }
+      if (meta) {
+        v.title = meta.title; v.thumbnail = meta.thumbnail; v.author = meta.author;
+        if (meta.resolved && /\/video\/\d+/.test(meta.resolved)) v.url = meta.resolved;
+      }
     }
     v.title = prompt("Caption:", v.title||'') || v.title || '';
     v.thumbnail = prompt("Thumbnail URL:", v.thumbnail||'') || v.thumbnail || '';
@@ -4050,17 +4145,25 @@
     if (box) box.innerHTML = html;
   }
 
+  async function purgeTestCustomers() {
+    if (!confirm("ลบแถวลูกค้าที่เกิดจากการทดสอบ (ชื่อขึ้นต้นด้วย [TEST) ออกจาก Sheet?")) return;
+    toast("⏳ กำลังลบ...");
+    try {
+      const res = await apiCall("purgeTestCustomers", {}, true, 25000);
+      if (res && res.ok) {
+        toast(`✓ ลบแถวทดสอบ ${res.removed} แถวแล้ว`);
+        await pullCustomersFromSheet();
+        render();
+      } else if (res && /unknown action/i.test(String(res.error||''))) {
+        toast("⚠️ ต้อง Deploy Code.gs v43 ก่อน");
+      } else {
+        toast("❌ ลบไม่สำเร็จ: " + ((res&&res.error)||''));
+      }
+    } catch (e) { toast("❌ " + (e.message||e)); }
+  }
+
   async function runWriteTest() {
     if (!S.sheetApiUrl) { setWriteTest(`<div style="margin-top:10px;padding:12px;background:#fde8e8;border:1px solid #f5a3a3;border-radius:8px;font-size:13px">❌ ยังไม่ได้ตั้ง URL</div>`); return; }
-
-    const stamp = new Date().toLocaleTimeString('th-TH');
-    const testData = {
-      name: `[TEST ${stamp}]`,
-      firstName: 'ทดสอบ', lastName: 'ระบบ',
-      phone: '0000000000', email: `test-${Date.now()}@example.com`,
-      address: 'แถวทดสอบ — ลบทิ้งได้',
-      registeredAt: new Date().toISOString(),
-    };
 
     setWriteTest(`<div style="margin-top:10px;padding:12px;background:var(--surface-warm);border-radius:8px;color:var(--text-muted);font-size:13px">⏳ กำลังเขียนแถวทดสอบ...</div>`);
 
@@ -4070,18 +4173,31 @@
     add(null, `URL: <code style="font-size:10px;word-break:break-all">${esc(S.sheetApiUrl)}</code>`);
     add(null, `Token: <code style="font-size:11px">${esc(S.sheetToken||'(ว่าง)')}</code>`);
 
-    // 1) เขียน
+    // เขียนลง tab _selftest ไม่ใช่ tab customers — รายชื่อลูกค้าจะได้ไม่เปื้อนแถวทดสอบ
     let writeRes;
     try {
-      writeRes = await apiCall("registerCustomer", { data: testData }, true);
+      writeRes = await apiCall("selfTest", {}, true, 25000);
     } catch (e) {
       writeRes = { ok: false, error: 'exception: ' + (e.message||e) };
     }
+
+    if (writeRes && /unknown action/i.test(String(writeRes.error||''))) {
+      setWriteTest(`<div style="margin-top:10px;padding:12px;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;font-size:13px;line-height:1.8">
+        ⚠️ backend ยังเป็นเวอร์ชันเก่า ยังไม่มีคำสั่ง <code>selfTest</code><br>
+        ต้องเอา <b>Code.gs v43</b> ไปวางใน Apps Script แล้ว Deploy ทับก่อน<br>
+        <span style="color:var(--text-muted);font-size:12px">(เวอร์ชันเก่าทดสอบด้วยการเขียนลูกค้าปลอมลง tab customers — เลิกใช้แล้ว)</span>
+      </div>`);
+      return;
+    }
+
     const wrote = !!(writeRes && writeRes.ok);
-    add(wrote, wrote ? 'เขียนสำเร็จ (backend ตอบ ok:true)' : 'เขียนไม่สำเร็จ');
+    add(wrote, wrote ? 'เขียนลง tab <b>_selftest</b> สำเร็จ' : 'เขียนไม่สำเร็จ');
     add(null, `คำตอบดิบ: <code style="font-size:11px;word-break:break-all">${esc(JSON.stringify(writeRes))}</code>`);
 
-    // 2) อ่านกลับ
+    const readBack = !!(writeRes && writeRes.readBack);
+    add(readBack, readBack ? 'อ่านกลับเจอแถวที่เพิ่งเขียน — <b>เขียนลง Sheet ได้จริง</b>' : 'อ่านกลับไม่เจอแถวที่เพิ่งเขียน');
+
+    // อ่านรายชื่อลูกค้าจริง (ไม่เขียนอะไรลงไป)
     let readRes;
     try {
       readRes = await apiCall("customers");
@@ -4089,11 +4205,16 @@
       readRes = { ok: false, error: 'exception: ' + (e.message||e) };
     }
     const readOk = !!(readRes && readRes.ok);
-    const count = readOk ? (readRes.customers||[]).length : 0;
-    add(readOk, readOk ? `อ่านกลับได้ ${count} แถว` : `อ่านกลับไม่ได้: ${esc((readRes&&readRes.error)||'')}`);
+    const all = readOk ? (readRes.customers||[]) : [];
+    const testRows = all.filter(c => String(c.name||'').indexOf('[TEST ') === 0);
+    add(readOk, readOk ? `อ่านรายชื่อลูกค้าได้ ${all.length} คน` : `อ่านลูกค้าไม่ได้: ${esc((readRes&&readRes.error)||'')}`);
+    if (testRows.length) {
+      add(false, `เจอแถวทดสอบเก่าปนอยู่ ${testRows.length} แถว —
+        <button class="btn btn-outline" style="font-size:11px;padding:2px 10px" onclick="purgeTestCustomers()">🧹 ลบทิ้ง</button>`);
+    }
 
-    const found = readOk && (readRes.customers||[]).some(c => c.name === testData.name);
-    add(found, found ? 'เจอแถวทดสอบที่เพิ่งเขียน — <b>ระบบทำงานครบวงจร</b>' : 'ไม่เจอแถวทดสอบในข้อมูลที่อ่านกลับมา');
+    const found = readBack;
+    add(found, found ? 'ระบบเขียน-อ่าน Sheet ได้ครบวงจร' : 'วงจรเขียน-อ่านยังไม่ครบ');
 
     // สรุปสาเหตุ
     let verdict;
@@ -4248,6 +4369,7 @@
       { action: 'customers', label: 'ลูกค้า (customers)',      need: 'v19' },
       { action: 'promos',    label: 'Banner + คลิป TikTok',   need: 'v28' },
       { action: 'settings',  label: 'ตั้งค่าร้าน (เบอร์/บัญชี)', need: 'v29' },
+      { action: 'bootstrap', label: 'โหลดรวดเดียว (bootstrap)', need: 'v42' },
     ];
 
     // ต้องยิงทีละอัน — Apps Script ประมวลผลทีละคำขอต่อผู้ใช้
@@ -4371,17 +4493,27 @@
       </div>
 
       <div class="co-card" style="margin:0 0 16px">
-        <h3 style="margin:0 0 10px">▶️ การเล่นอัตโนมัติ</h3>
+        <h3 style="margin:0 0 10px">▶️ การเล่นคลิป</h3>
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;margin-bottom:10px">
           <input type="checkbox" ${S.tiktokAutoplay!==false?'checked':''} onchange="S.tiktokAutoplay=this.checked;saveState();render()" style="width:18px;height:18px;cursor:pointer">
-          <span>เล่นคลิปอัตโนมัติแบบ<b>ปิดเสียง</b>บนหน้าแรก</span>
+          <span>เล่นวนอัตโนมัติแบบ<b>ปิดเสียง</b> (เฉพาะคลิปที่อัพวิดีโอ preview ไว้)</span>
         </label>
         <div style="font-size:12px;color:var(--text-muted);line-height:1.8;background:var(--surface-warm);padding:10px 12px;border-radius:8px">
-          • โหลด player เฉพาะคลิปที่เลื่อนมาเห็น (สูงสุด 4 อัน) — ประหยัดเน็ตลูกค้า<br>
-          • <b>TikTok อาจไม่ยอมเล่นอัตโนมัติ</b> ขึ้นกับ browser/นโยบายของเขา<br>
-          • อยากให้เล่นวนแน่นอน 100% → อัพ <b>วิดีโอ preview</b> สั้นๆ ของตัวเองในแต่ละคลิป (ปุ่ม 🎞️ ด้านล่าง)
+          <b style="color:var(--brand)">TikTok ไม่เปิดให้เว็บอื่นสั่งเล่นคลิปเขาอัตโนมัติ</b> — เป็นข้อจำกัดของ TikTok เอง แก้ที่โค้ดไม่ได้<br>
+          • หน้าแรกจึงแสดง <b>รูปปก + ปุ่ม ▶</b> กดแล้วเปิด player เต็มจอซึ่งเล่นได้จริง<br>
+          • อยากให้ <b>เล่นวนเองแบบ TikTok</b> → กดปุ่ม 🎞️ ที่คลิป แล้วอัพวิดีโอสั้นๆ ของตัวเอง (วิธีเดียวที่ได้ผล 100%)
         </div>
       </div>
+
+      ${(S.tiktokVideos||[]).some(v=>!tiktokVideoId(v.url)) ? `
+        <div class="co-card" style="margin:0 0 16px;border:2px solid #f59e0b;background:#fffbeb">
+          <h3 style="margin:0 0 6px;color:#b45309">⚠️ มี ${(S.tiktokVideos||[]).filter(v=>!tiktokVideoId(v.url)).length} คลิปที่กดแล้วเล่นในเว็บไม่ได้</h3>
+          <div style="font-size:12px;color:#92400e;line-height:1.8;margin-bottom:10px">
+            ลิงก์สั้น (<code>vt.tiktok.com/...</code>) ไม่มีเลข id ของคลิปอยู่ในตัว ระบบเลยสร้าง player ไม่ได้ — กดแล้วเด้งออกไป TikTok แทน<br>
+            กดปุ่มข้างล่างเพื่อให้ระบบแปลงเป็นลิงก์เต็มให้ทุกอันรวดเดียว
+          </div>
+          <button class="btn btn-primary" onclick="fixAllTiktokLinks()">🔧 ซ่อมลิงก์ทั้งหมด</button>
+        </div>` : ''}
 
       <div class="section-head" style="margin:0 0 12px">
         <h2 style="font-size:16px">คลิปทั้งหมด (${vids.length})</h2>
@@ -4570,6 +4702,8 @@
   // =========================
   function viewAdminSettings() {
     liveSheetConfig(); // ให้ช่อง URL/Token แสดงค่าจริงเสมอ (กันแท็บเก่าโชว์ค่าค้าง)
+    // SlipOK key ไม่ถูกส่งมาทาง doGet สาธารณะแล้ว — แอดมินดึงผ่าน POST ที่มี token
+    if (S.sheetApiUrl && !S._secretsPulled) { S._secretsPulled = true; pullSecretSettings(); }
     const inp = (id, label, val, ph, type='text') => `
       <label style="display:block;margin-bottom:12px">
         <span style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">${label}</span>
@@ -4928,19 +5062,31 @@
     'bankName2','bankAccountName2','bankAccountNo2',
     'slipokApiKey','slipokBranchId','cloudinaryCloud','cloudinaryPreset',
     'gaTagId','liffId','lineOA','messengerUrl','tiktokUrl','youtubeUrl','contactEmail'];
+  function applySettings(settings) {
+    if (!settings) return;
+    SETTING_KEYS.forEach(k => {
+      if (settings[k] !== undefined && settings[k] !== '') S[k] = settings[k];
+    });
+    saveSynced(SETTING_KEYS);
+    // liffId เพิ่งมาจาก Sheet → เริ่ม LIFF ตอนนี้ (ตอน page load ยังไม่มีค่า)
+    if (S.liffId) initLIFF();
+  }
+
   async function pullSettingsFromSheet() {
     if (!S.sheetApiUrl) return;
     try {
       const res = await apiCall("settings");
-      if (res && res.ok && res.settings) {
-        SETTING_KEYS.forEach(k => {
-          if (res.settings[k] !== undefined && res.settings[k] !== '') S[k] = res.settings[k];
-        });
-        saveSynced(SETTING_KEYS);
-        // liffId เพิ่งมาจาก Sheet → เริ่ม LIFF ตอนนี้ (ตอน page load ยังไม่มีค่า)
-        if (S.liffId && !window.liff) initLIFF();
-      }
+      if (res && res.ok) applySettings(res.settings);
     } catch(e){ console.error("[settings pull]", e); }
+  }
+
+  // ค่าลับ (SlipOK key) ไม่ถูกส่งมาทาง doGet แล้ว — แอดมินดึงผ่าน POST ที่มี token
+  async function pullSecretSettings() {
+    if (!S.sheetApiUrl || !isAdmin()) return;
+    try {
+      const res = await apiCall("settingsFull", {}, true);
+      if (res && res.ok && res.settings) { applySettings(res.settings); render(); }
+    } catch(e){ console.error("[settings secret]", e); }
   }
   async function pushSettingsToSheet() {
     if (!S.sheetApiUrl) { toast("⚠️ ยังไม่เชื่อม Sheet — ตั้งค่าเก็บแค่ในเครื่องนี้"); return false; }
@@ -4962,32 +5108,67 @@
   }
 
   // Promos (banners + tiktok) sync กับ Sheet
+  async function applyPromos(res) {
+    const remoteTt = res.tiktoks || [];
+    const remoteBn = res.banners || [];
+    const localTt  = S.tiktokVideos || [];
+    const localBn  = S.banners || [];
+
+    // ============================================================
+    // กฎ: Sheet คือศูนย์กลาง — ฝั่งไหนที่ Sheet มีข้อมูล ให้ใช้ของ Sheet เสมอ
+    //
+    // บั๊กเดิม: ถ้า banner ใน Sheet ว่าง แต่เครื่องนี้มี banner ค้าง
+    // มันจะ savePromosToSheet() ซึ่ง "เขียนทับทั้งตาราง" ด้วยค่าในเครื่อง
+    // เครื่องที่ไม่มีคลิป → ส่ง tiktoks: [] ขึ้นไป → คลิปของทุกคนหายเกลี้ยง
+    // ต้องรวมข้อมูลก่อนเสมอ ห้ามส่งค่าในเครื่องดิบๆ ขึ้นไป
+    // ============================================================
+    S.tiktokVideos = remoteTt.length ? remoteTt : localTt;
+    S.banners      = remoteBn.length ? remoteBn : localBn;
+    saveSynced('banners','tiktokVideos');
+
+    // กู้ขึ้น Sheet เฉพาะตอนที่ "เคยบันทึกไม่สำเร็จ" เท่านั้น
+    // ไม่งั้นคลิปที่แอดมินตั้งใจลบ จะถูกเครื่องเก่าอัพกลับขึ้นไปเรื่อยๆ
+    const needRecover = S.promosPendingPush &&
+      ((remoteTt.length === 0 && localTt.length > 0) || (remoteBn.length === 0 && localBn.length > 0));
+    if (needRecover) {
+      console.warn("[promos] มีของค้างที่ยังไม่ขึ้น Sheet — กำลังกู้");
+      const ok = await savePromosToSheet();
+      if (ok) toast(`↑ กู้ข้อมูลที่ค้างขึ้น Sheet แล้ว`);
+    }
+  }
+
+  // ============================================================
+  // bootstrap — ดึง คลิป + ตั้งค่า + รีวิว ด้วย request เดียว
+  //
+  // Apps Script รับคำขอของ user เดียวกัน "ทีละอัน" ยิงพร้อมกัน 4 อันไม่ได้เร็วขึ้น
+  // มันต่อคิวกัน → หน้าเว็บเลยค้างข้อมูลเก่าอยู่หลายวินาทีกว่าจะครบ
+  // รวมเป็นอันเดียวจึงเร็วขึ้นประมาณ 3-4 เท่า
+  // ============================================================
+  async function pullBootstrapFromSheet() {
+    if (!S.sheetApiUrl) return;
+    try {
+      const res = await apiCall("bootstrap");
+      if (res && res.ok) {
+        await applyPromos(res);
+        applySettings(res.settings);
+        if (Array.isArray(res.reviews)) { S.sheetReviews = res.reviews; saveSynced('sheetReviews'); }
+        return;
+      }
+      // backend เก่า (ก่อน v42) ยังไม่รู้จัก bootstrap — ถอยไปใช้วิธีเดิม
+      if (res && /unknown action/i.test(String(res.error||''))) {
+        console.warn("[bootstrap] backend ยังเป็นเวอร์ชันเก่า — ใช้วิธียิงทีละอัน");
+        await pullPromosFromSheet();
+        await pullSettingsFromSheet();
+        await pullReviewsFromSheet();
+      }
+    } catch(e){ console.error("[bootstrap]", e); }
+  }
+
   async function pullPromosFromSheet() {
     if (!S.sheetApiUrl) return;
     try {
       const res = await apiCall("promos");
-      if (!(res && res.ok)) return;
-      const remoteTt = res.tiktoks || [];
-      const remoteBn = res.banners || [];
-      const localTt = S.tiktokVideos || [];
-      const localBn = S.banners || [];
-
-      // กันข้อมูลหาย: ถ้า Sheet ว่างแต่ในเครื่องมีของ แปลว่าเคยบันทึกขึ้น Sheet ไม่สำเร็จ
-      // อย่าเขียนทับทิ้ง — ดันของในเครื่องขึ้นไปแทน
-      if (remoteTt.length === 0 && localTt.length > 0) {
-        console.warn("[promos] Sheet ว่างแต่ในเครื่องมี", localTt.length, "คลิป — กำลังกู้ขึ้น Sheet");
-        const ok = await savePromosToSheet();
-        toast(ok ? `↑ กู้คลิป ${localTt.length} อันขึ้น Sheet แล้ว` : "⚠️ คลิปยังไม่ขึ้น Sheet — เช็คการเชื่อมต่อ");
-        return;
-      }
-      if (remoteBn.length === 0 && localBn.length > 0) {
-        await savePromosToSheet();
-        return;
-      }
-
-      S.banners = remoteBn;
-      S.tiktokVideos = remoteTt;
-      saveSynced('banners','tiktokVideos');
+      if (res && res.ok) await applyPromos(res);
     } catch(e){ console.error("[promos pull]", e); }
   }
 
@@ -4995,7 +5176,8 @@
     if (!S.sheetApiUrl) { toast("⚠️ ยังไม่เชื่อม Sheet — ข้อมูลเก็บแค่ในเครื่องนี้"); return false; }
     try {
       const res = await apiCall("savePromos", { banners: S.banners||[], tiktoks: S.tiktokVideos||[] }, true);
-      if (res && res.ok) return true;
+      if (res && res.ok) { S.promosPendingPush = false; saveState(); return true; }
+      S.promosPendingPush = true; saveState();
       const err = (res && res.error) || 'ไม่ทราบสาเหตุ';
       console.error("[promos save]", res);
       toast(String(err).includes('unauthorized')
@@ -5004,6 +5186,7 @@
       return false;
     } catch(e){
       console.error("[promos save]", e);
+      S.promosPendingPush = true; saveState();
       toast("❌ บันทึกไม่ขึ้น Sheet: " + (e.message||e));
       return false;
     }
@@ -5039,12 +5222,13 @@
   }
 
   let _liffInited = false;
+  let _liffError = '';
   async function initLIFF() {
-    if (!S.liffId) return;
+    if (!S.liffId) { _liffError = 'ยังไม่ได้ตั้ง LIFF ID'; return; }
     const loaded = await loadLiffSdk();
-    if (!loaded || !window.liff) return;
+    if (!loaded || !window.liff) { _liffError = 'โหลด LIFF SDK ไม่ได้'; return; }
     try {
-      if (!_liffInited) { await liff.init({ liffId: S.liffId }); _liffInited = true; }
+      if (!_liffInited) { await liff.init({ liffId: S.liffId }); _liffInited = true; _liffError = ''; }
       if (liff.isLoggedIn()) {
         const profile = await liff.getProfile();
         S.lineProfile = {
@@ -5060,7 +5244,10 @@
         }
         render();
       }
-    } catch (e) { console.error("LIFF init err:", e); }
+    } catch (e) {
+      _liffError = String(e.message || e);
+      console.error("LIFF init err:", e);
+    }
   }
 
   async function loginWithLINE() {
