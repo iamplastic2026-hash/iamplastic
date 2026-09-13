@@ -2901,7 +2901,7 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 53;
+  const APP_VERSION = 54;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
   const NEED_BACKEND = 43;
@@ -3407,6 +3407,25 @@
     try {
       // ไม่ส่ง password ขึ้น Sheet
       const { password, ...safe } = customer;
+
+      // ============================================================
+      // กันลูกค้าหายบน backend v41
+      //
+      // v41 อ่านตาราง customers โดยทิ้งแถวที่คอลัมน์ "name" ว่าง
+      // (v43 แก้ให้ดู phone/email/LINE ด้วย) — แต่ถ้ายังไม่ได้ deploy
+      // ลูกค้าที่ไม่มีชื่อจะหายไปเลย
+      // เลยเติมชื่อสำรองให้ทุกแถวก่อนส่ง จะได้ไม่มีแถวไหนชื่อว่าง
+      // ============================================================
+      if (!String(safe.name || '').trim()) {
+        const alt = [safe.firstName, safe.lastName].filter(Boolean).join(' ').trim()
+          || safe.company
+          || safe.phone
+          || (safe.email && safe.email.indexOf('LINE:') !== 0 ? safe.email : '')
+          || (safe.lineUserId ? 'ลูกค้า LINE' : '')
+          || 'ลูกค้าไม่ระบุชื่อ';
+        safe.name = alt;
+      }
+
       const res = await apiCall("registerCustomer", { data: safe }, true);
       if (!(res && res.ok)) console.error("[pushCustomerToSheet] backend:", res && res.error);
       return !!(res && res.ok);
