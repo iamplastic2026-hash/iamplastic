@@ -2901,7 +2901,7 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 54;
+  const APP_VERSION = 55;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
   const NEED_BACKEND = 43;
@@ -4686,14 +4686,36 @@
     const oldestFail = failed.length ? failed[0].need : null;
 
     const tokenBad = results.some(r => r.action === 'getadmin' && String(r.err||'').includes('unauthorized'));
+
+    // ============================================================
+    // แยกอาการ "คิวตัน" ออกจาก "ยังไม่ deploy"
+    //
+    // ping ไม่แตะ Google Sheet เลย ส่วนคำสั่งอื่นแตะหมด
+    // ถ้า ping ผ่านแต่ที่เหลือหมดเวลารอทุกอัน = สคริปต์ยังมีชีวิต
+    // แต่การเข้าถึง Sheet ติดคิวอยู่ — คนละเรื่องกับเวอร์ชันโค้ด
+    // ============================================================
+    const timedOut = failed.filter(r => /หมดเวลารอ/.test(String(r.err||'')));
+    const queueJam = backendVer !== null && timedOut.length >= 3 && timedOut.length === failed.length;
     setDiag(`
       <div style="background:${allOk?'#e6f7ed':'#fff3cd'};border:1px solid ${allOk?'#8ed9ae':'#ffc107'};padding:14px 16px;border-radius:10px;margin-bottom:16px">
+        ${queueJam ? `<div style="background:#fff3cd;border:2px solid #ffc107;padding:12px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#7a5a00;line-height:1.75">
+          ⏳ <b>ไม่ใช่ปัญหาเวอร์ชัน — Apps Script กำลังตันอยู่</b><br>
+          "เชื่อมต่อพื้นฐาน" ผ่าน แปลว่าสคริปต์ยังทำงาน แต่คำสั่งที่ต้องแตะ Google Sheet
+          หมดเวลารอทุกอัน (${timedOut.length} จาก ${results.length})<br><br>
+          <b>Apps Script รันทีละคำขอต่อ 1 บัญชี</b> ถ้ามีงานค้างอยู่ ทุกอย่างจะต่อคิวจนหมดเวลา<br>
+          <b>ลองตามนี้:</b><br>
+          1. <b>ปิดแท็บเว็บร้านให้เหลือแท็บเดียว</b> — ทุกแท็บที่เปิดค้างยิงคำขอของตัวเองไปต่อคิวกัน<br>
+          2. ถ้าเพิ่งกด Deploy อยู่ รอให้เสร็จก่อน<br>
+          3. เช็คงานค้างที่ Apps Script → เมนูซ้าย <b>⏱ Executions</b> — ถ้ามีแถวสถานะ <b>Running</b> ค้าง ให้รอจนจบ<br>
+          4. รอ 1–2 นาที แล้วกด 🔬 ตรวจสอบระบบ ใหม่
+        </div>` : ''}
         ${tokenBad ? `<div style="background:#fde8e8;border:1px solid #f5a3a3;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px;color:#b02a2a">
           🔑 <b>Secret Token ไม่ตรงกับ Code.gs</b> — ต้องเป็น <code style="background:#fff;padding:1px 5px;border-radius:3px">iamplastic_secret_2026</code>
           <button class="btn btn-primary" style="display:block;margin-top:8px;font-size:12px" onclick="fixSheetToken()">🔧 แก้ให้อัตโนมัติ</button>
         </div>` : ''}
         <div style="font-weight:800;font-size:15px;margin-bottom:6px;color:${allOk?'#0B7A3E':'#7a5a00'}">
           ${allOk ? '✅ Backend เป็นเวอร์ชันล่าสุด — ทุกฟีเจอร์พร้อมใช้'
+                  : queueJam ? '⏳ Apps Script ตอบไม่ทัน — ลองใหม่อีกครั้ง'
                   : (backendVer === null ? '⚠️ Backend เป็นเวอร์ชันเก่ามาก (ไม่บอกเวอร์ชัน)'
                      : !backendOk ? `⚠️ Apps Script ยังเป็น v${backendVer} — ต้อง deploy v${EXPECTED_BACKEND}`
                      : `⚠️ มี ${failed.length} ฟีเจอร์ใช้ไม่ได้`)}
