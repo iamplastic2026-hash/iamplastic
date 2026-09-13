@@ -582,6 +582,11 @@
 
   .checkout { display: grid; grid-template-columns: 1fr 340px; gap: 20px; }
   .co-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 14px; }
+  /* บล็อกพับเก็บ (เช่น รายละเอียดสลิป) */
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::marker { content: ""; }
+  details > summary:hover { background: var(--brand-soft); border-radius: 8px; }
+  details[open] > summary { border-bottom: 1px solid var(--border); }
   .co-card h3 { margin: 0 0 14px; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
   .co-card h3 .switch { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--wholesale); font-weight: 500; }
   .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -1506,8 +1511,8 @@
 
         <div class="form-field wide" style="margin-bottom:14px">
           <label style="font-size:13px;font-weight:600">📸 อัพโหลดสลิป</label>
-          <input type="file" id="slip-file" accept="image/*" onchange="onSlipFileChange(event)" style="padding:8px;font-size:13px;background:var(--surface-warm);border:1px solid var(--border);border-radius:6px;width:100%;font-family:inherit;color:var(--text)">
-          <div style="font-size:11px;color:var(--text-muted);margin-top:6px">📱 บนมือถือ: เลือก "ถ่ายรูป" หรือ "คลังภาพ" · รับไฟล์ JPG, PNG (ระบบจะบีบให้อัตโนมัติ)</div>
+          <input type="file" id="slip-file" accept="image/*" onchange="onSlipFileChange(event, '${po}')" style="padding:8px;font-size:13px;background:var(--surface-warm);border:1px solid var(--border);border-radius:6px;width:100%;font-family:inherit;color:var(--text)">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:6px">📱 แนบรูปสลิป แล้วกด "ส่งสลิป" ได้เลย — ไม่ต้องพิมพ์อะไร<br>บนมือถือ: เลือก "ถ่ายรูป" หรือ "คลังภาพ" · รับไฟล์ JPG, PNG (ระบบจะบีบให้อัตโนมัติ)</div>
         </div>
 
         <div id="slip-preview" style="display:none;text-align:center;padding:14px;background:var(--surface-warm);border-radius:8px;margin-bottom:14px">
@@ -1515,22 +1520,32 @@
           <div id="slip-size-info" style="font-size:11px;color:var(--text-muted);margin-top:6px"></div>
         </div>
 
-        <div class="form-grid" style="margin-bottom:14px">
-          <div class="form-field"><label>วันที่โอน</label><input type="date" id="slip-date" value="${new Date().toISOString().slice(0,10)}"></div>
-          <div class="form-field"><label>เวลาที่โอน</label><input type="time" id="slip-time" value="${new Date().toTimeString().slice(0,5)}"></div>
-          <div class="form-field"><label>ยอดโอน (บาท)</label><input type="number" step="0.01" id="slip-amount" class="mono" value="${o.total}"></div>
-          <div class="form-field"><label>ธนาคาร (ถ้ามี)</label>
-            <select id="slip-bank" style="padding:9px 12px;border:1px solid var(--border);background:var(--surface-warm);border-radius:4px;font-size:13px;color:var(--text);font-family:inherit;width:100%">
-              <option value="">-- เลือก --</option>
-              <option>KBank</option><option>SCB</option><option>Bangkok Bank</option><option>Krungthai</option><option>Krungsri</option><option>TTB</option><option>PromptPay</option><option>อื่นๆ</option>
-            </select>
-          </div>
-          <div class="form-field wide"><label>หมายเหตุ (ถ้ามี)</label><input id="slip-note" placeholder="เช่น: โอนจากบัญชี xxxx"></div>
-        </div>
+        <div id="slip-auto-hint" style="display:none;font-size:12px;padding:9px 12px;border-radius:6px;background:var(--surface-warm);margin-bottom:12px"></div>
 
-        <div style="display:flex;gap:10px;justify-content:flex-end">
+        <details id="slip-more" style="margin-bottom:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface-warm)">
+          <summary style="cursor:pointer;padding:11px 14px;font-size:13px;font-weight:600;list-style:none">
+            ✏️ แก้ไขรายละเอียดการโอน (ไม่ต้องกรอกก็ได้)
+            <span style="display:block;font-weight:400;font-size:11px;color:var(--text-muted);margin-top:3px">
+              ระบบกรอกให้แล้ว: วันนี้ · เวลาปัจจุบัน · ยอด ${money(o.total)}
+            </span>
+          </summary>
+          <div class="form-grid" style="padding:0 14px 14px">
+            <div class="form-field"><label>วันที่โอน</label><input type="date" id="slip-date" value="${new Date().toISOString().slice(0,10)}"></div>
+            <div class="form-field"><label>เวลาที่โอน</label><input type="time" id="slip-time" value="${new Date().toTimeString().slice(0,5)}"></div>
+            <div class="form-field"><label>ยอดโอน (บาท)</label><input type="number" step="0.01" id="slip-amount" class="mono" value="${o.total}"></div>
+            <div class="form-field"><label>ธนาคาร (ถ้ามี)</label>
+              <select id="slip-bank" style="padding:9px 12px;border:1px solid var(--border);background:var(--surface-warm);border-radius:4px;font-size:13px;color:var(--text);font-family:inherit;width:100%">
+                <option value="">-- เลือก --</option>
+                <option>KBank</option><option>SCB</option><option>Bangkok Bank</option><option>Krungthai</option><option>Krungsri</option><option>TTB</option><option>PromptPay</option><option>อื่นๆ</option>
+              </select>
+            </div>
+            <div class="form-field wide"><label>หมายเหตุ (ถ้ามี)</label><input id="slip-note" placeholder="เช่น: โอนจากบัญชี xxxx"></div>
+          </div>
+        </details>
+
+        <button class="btn btn-primary btn-big" id="slip-send" onclick="submitSlip('${po}')" style="width:100%;justify-content:center;font-size:15px;padding:14px">✅ ส่งสลิป</button>
+        <div style="text-align:center;margin-top:10px">
           <button class="btn btn-ghost" onclick="go('/order/${po}')">ยกเลิก</button>
-          <button class="btn btn-primary btn-big" onclick="submitSlip('${po}')">✅ ส่งสลิป</button>
         </div>
 
         <div style="margin-top:16px;padding:12px 14px;background:var(--wholesale-soft);border-radius:6px;font-size:11px;color:var(--wholesale);line-height:1.6">
@@ -1541,8 +1556,9 @@
   }
 
   let _slipDataUrl = null;
+  let _slipAuto = null;   // ผลอ่านสลิปอัตโนมัติ (SlipOK) — ใช้ซ้ำตอนกดส่ง จะได้ไม่เสียเครดิต 2 ครั้ง
 
-  async function onSlipFileChange(e) {
+  async function onSlipFileChange(e, po) {
     const file = e.target.files[0];
     if (!file) return;
     // Compress: resize + quality
@@ -1556,8 +1572,56 @@
       const sizeKB = Math.round(compressed.dataUrl.length / 1024);
       info.textContent = `📎 ขนาด ${sizeKB} KB · ${compressed.width}×${compressed.height} px${sizeKB > 45 ? ' (⚠️ อาจเก็บใน Sheet ยาก — ระบบจะบีบเพิ่ม)' : ''}`;
       preview.style.display = "block";
+      _slipAuto = null;
+      if (po) autoReadSlip(po);
     } catch (err) {
       toast("❌ อ่านรูปไม่ได้: " + err.message);
+    }
+  }
+
+  // รหัสธนาคารจาก SlipOK → ชื่อใน dropdown
+  const BANK_CODE_NAME = {
+    "002": "Bangkok Bank", "004": "KBank", "006": "Krungthai",
+    "011": "TTB", "014": "SCB", "025": "Krungsri",
+  };
+
+  // อ่านสลิปอัตโนมัติทันทีที่แนบรูป (ถ้าตั้ง SlipOK ไว้) — ลูกค้าจะได้ไม่ต้องพิมพ์
+  async function autoReadSlip(po) {
+    if (!_slipDataUrl || !S.slipokApiKey || !S.slipokBranchId) return;
+    const all = [...(S.sheetOrders || []), ...S.orders];
+    const o = all.find(x => x.po === po);
+    const hint = document.getElementById("slip-auto-hint");
+    const setHint = (txt, color) => {
+      if (!hint) return;
+      hint.style.display = "block";
+      hint.textContent = txt;
+      hint.style.color = color || "var(--text-muted)";
+    };
+    setHint("⏳ กำลังอ่านสลิปอัตโนมัติ...");
+    try {
+      const raw = _slipDataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
+      const vres = await apiCall("verifySlip", {
+        slipBase64: raw, expectedAmount: o ? o.total : 0,
+        slipokApiKey: S.slipokApiKey, slipokBranchId: S.slipokBranchId,
+      }, true);
+      const result = vres && vres.result;
+      const d = result && result.data;
+      if (!d) { if (hint) hint.style.display = "none"; return; }
+      _slipAuto = result;
+      const set = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+      const ds = String(d.transDate || "").replace(/\D/g, "");
+      if (ds.length === 8) set("slip-date", ds.slice(0,4) + "-" + ds.slice(4,6) + "-" + ds.slice(6,8));
+      const ts = String(d.transTime || "");
+      if (/^\d{2}:\d{2}/.test(ts)) set("slip-time", ts.slice(0,5));
+      const amt = Number(d.amount);
+      if (amt > 0) set("slip-amount", String(amt));
+      const bank = BANK_CODE_NAME[String(d.sendingBank || "").trim()] || "";
+      if (bank) set("slip-bank", bank);
+      if (result.ok) setHint("✓ อ่านสลิปอัตโนมัติแล้ว — ยอด " + money(amt || 0) + " · กดส่งได้เลย", "var(--brand)");
+      else setHint("⚠️ อ่านสลิปได้ แต่ยอดไม่ตรงกับบิล — ส่งได้ แอดมินจะตรวจอีกครั้ง", "var(--wholesale)");
+    } catch (err) {
+      console.error("autoReadSlip:", err);
+      if (hint) hint.style.display = "none";
     }
   }
 
@@ -1632,14 +1696,17 @@
       } catch (e) {
         toast("⚠️ Push Sheet ล้มเหลว: " + e.message + " (แต่บันทึกในเครื่องแล้ว)");
       }
-      // Auto-verify ผ่าน SlipOK (ถ้ามี API key)
+      // Auto-verify ผ่าน SlipOK (ถ้ามี API key) — ใช้ผลที่อ่านไว้ตอนแนบรูปถ้ามี
       if (S.slipokApiKey && S.slipokBranchId) {
         try {
-          const raw = _slipDataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
-          const vres = await apiCall("verifySlip", {
-            slipBase64: raw, expectedAmount: o ? o.total : 0,
-            slipokApiKey: S.slipokApiKey, slipokBranchId: S.slipokBranchId,
-          }, true);
+          let vres = _slipAuto ? { ok: true, result: _slipAuto } : null;
+          if (!vres) {
+            const raw = _slipDataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
+            vres = await apiCall("verifySlip", {
+              slipBase64: raw, expectedAmount: o ? o.total : 0,
+              slipokApiKey: S.slipokApiKey, slipokBranchId: S.slipokBranchId,
+            }, true);
+          }
           if (vres && vres.ok && vres.result && vres.result.ok) {
             // Auto-verify
             [S.orders, S.sheetOrders || []].forEach(list => {
@@ -1659,6 +1726,7 @@
     }
 
     _slipDataUrl = null;
+    _slipAuto = null;
     go('/order/' + po);
   }
 
@@ -3429,7 +3497,7 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 76;
+  const APP_VERSION = 77;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
   const NEED_BACKEND = 50;
