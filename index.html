@@ -2213,8 +2213,11 @@
     if (!c) return 0;
     const sub = cartSubtotal();
     if (c.minTotal && sub < c.minTotal) return 0;
-    if (c.kind === "percent") return Math.floor(sub * (c.value/100));
-    return Math.min(c.value, sub);
+    // ส่วนลดต้องไม่เกินค่าสินค้า — แอดมินพิมพ์ % เกิน 100 ได้ (เช่นตั้งใจพิมพ์ 15 แต่พิมพ์ 150)
+    // ถ้าไม่คุมไว้ ยอดที่ต้องจ่ายจะติดลบ
+    const val = Math.max(0, Number(c.value) || 0);
+    if (c.kind === "percent") return Math.min(sub, Math.floor(sub * (Math.min(val, 100) / 100)));
+    return Math.min(val, sub);
   }
   function cartTotal() {
     return Math.max(0, cartSubtotal() - couponDiscount());
@@ -2511,8 +2514,15 @@
   // CSV Export
   function exportCsv(filename, rows) {
     if (!rows || !rows.length) { toast("ไม่มีข้อมูลให้ export"); return; }
-    const cols = Object.keys(rows[0]);
-    const esc = v => { const s = v==null?'':String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
+    // รวมคอลัมน์จากทุกแถว — แถวแรกอาจไม่มีครบทุกช่อง
+    const cols = [...new Set(rows.flatMap(r => Object.keys(r || {})))];
+    const esc = v => {
+      let s = v == null ? '' : String(v);
+      // ค่าที่ขึ้นต้นด้วย = + - @ Excel จะถือเป็น "สูตร" แล้วรันทันทีที่เปิดไฟล์
+      // ข้อมูลพวกนี้ลูกค้าเป็นคนพิมพ์เอง (ชื่อ/ที่อยู่) จึงต้องตัดฤทธิ์ก่อน
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
     const lines = [cols.join(','), ...rows.map(r => cols.map(c => esc(r[c])).join(','))];
     const bom = '﻿'; // UTF-8 BOM สำหรับ Excel
     const csv = bom + lines.join('\r\n');
@@ -3882,7 +3892,7 @@
     const disc = couponDiscount();
     const ship = shippingFee();
     const remote = remoteFee();
-    const tot = sub - disc + ship + remote;
+    const tot = Math.max(0, sub - disc + ship + remote);   // ยอดที่ต้องจ่ายต้องไม่ติดลบ
     // Get selected address
     let customer;
     if (isLoggedIn()) {
@@ -3972,10 +3982,10 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 81;
+  const APP_VERSION = 82;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
-  const NEED_BACKEND = 52;
+  const NEED_BACKEND = 53;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
