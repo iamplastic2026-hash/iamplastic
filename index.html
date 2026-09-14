@@ -1199,6 +1199,17 @@
   function safeGet(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
   function esc(s) { return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+  // ใส่ค่าที่ผู้ใช้พิมพ์เองลงใน onclick="fn(...)" ให้ปลอดภัย
+  // คืนค่าพร้อมอัญประกาศแล้ว — ใช้แบบ onclick="fn(${jsStr(v)})"
+  // esc() อย่างเดียวไม่พอตรงนี้ เพราะ ' ใน JS ปิด string ได้ก่อนที่ HTML จะ decode
+  function jsStr(v) {
+    const js = String(v == null ? '' : v)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\r?\n/g, '\\n');
+    return "'" + js.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) + "'";
+  }
+
   // Floating contact FAB
   function toggleFab() {
     const el = document.getElementById('fab-items');
@@ -1508,7 +1519,7 @@
     const ship = Number(o.shipping || 0);
     const disc = Number(o.discount || 0);
     const st = STATUS_LABEL[o.status] || { th: o.status || '-', icon: '' };
-    const rows = (o.items || []).map((item, i) => {
+    const rows = orderItems(o).map((item, i) => {
       const p = EP.find(x => x.id === item.pid) || { name: item.pid };
       const each = item.priceEach !== undefined ? Number(item.priceEach) : priceOf(p, item.qty);
       return `<tr>
@@ -1629,18 +1640,18 @@
   function viewUploadSlip(po) {
     const all = [...(S.sheetOrders || []), ...S.orders];
     const o = all.find(x => x.po === po);
-    if (!o) return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบคำสั่งซื้อ ${po}</div></div>`;
+    if (!o) return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบคำสั่งซื้อ ${esc(po)}</div></div>`;
     const already = slipImagesOf(o);
     const room = Math.max(0, SLIP_MAX_IMAGES - already.length);
     return `
       <div class="section-head">
         <h2>📸 แจ้งโอนเงิน / แนบหลักฐาน</h2>
-        <button class="btn btn-ghost" onclick="go('/order/${po}')">← กลับ</button>
+        <button class="btn btn-ghost" onclick="go('/order/'+${jsStr(po)})">← กลับ</button>
       </div>
       <div class="co-card" style="margin:0;max-width:640px">
         <div style="padding:14px 18px;background:var(--brand-soft);border-radius:8px;margin-bottom:16px;border-left:4px solid var(--brand)">
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">คำสั่งซื้อ</div>
-          <div class="mono" style="font-size:16px;font-weight:700;color:var(--brand)">${po}</div>
+          <div class="mono" style="font-size:16px;font-weight:700;color:var(--brand)">${esc(po)}</div>
           <div style="margin-top:6px;font-size:13px">ยอดที่ต้องชำระ: <b class="mono" style="color:var(--brand)">${money(o.total)}</b></div>
         </div>
 
@@ -1658,7 +1669,7 @@
 
         <div class="form-field wide" style="margin-bottom:14px">
           <label style="font-size:13px;font-weight:600">📸 แนบหลักฐานการโอน</label>
-          <input type="file" id="slip-file" accept="image/*" multiple ${room ? '' : 'disabled'} onchange="onSlipFileChange(event, '${po}')" style="padding:8px;font-size:13px;background:var(--surface-warm);border:1px solid var(--border);border-radius:6px;width:100%;font-family:inherit;color:var(--text)">
+          <input type="file" id="slip-file" accept="image/*" multiple ${room ? '' : 'disabled'} onchange="onSlipFileChange(event, ${jsStr(po)})" style="padding:8px;font-size:13px;background:var(--surface-warm);border:1px solid var(--border);border-radius:6px;width:100%;font-family:inherit;color:var(--text)">
           <div style="font-size:11px;color:var(--text-muted);margin-top:6px">
             📱 แนบรูปแล้วกดส่งได้เลย — ไม่ต้องพิมพ์อะไร<br>
             รับทั้ง <b>สลิปโอนเงิน</b> และ <b>ภาพอีเมลยืนยันจากธนาคาร</b> · โอนหลายครั้งเลือกได้หลายรูปพร้อมกัน (สูงสุด ${SLIP_MAX_IMAGES} รูป)
@@ -1698,9 +1709,9 @@
           </div>
         </details>
 
-        <button class="btn btn-primary btn-big" id="slip-send" onclick="submitSlip('${po}')" style="width:100%;justify-content:center;font-size:15px;padding:14px">✅ ส่งหลักฐาน</button>
+        <button class="btn btn-primary btn-big" id="slip-send" onclick="submitSlip(${jsStr(po)})" style="width:100%;justify-content:center;font-size:15px;padding:14px">✅ ส่งหลักฐาน</button>
         <div style="text-align:center;margin-top:10px">
-          <button class="btn btn-ghost" onclick="go('/order/${po}')">ยกเลิก</button>
+          <button class="btn btn-ghost" onclick="go('/order/'+${jsStr(po)})">ยกเลิก</button>
         </div>
 
         <div style="margin-top:16px;padding:12px 14px;background:var(--wholesale-soft);border-radius:6px;font-size:11px;color:var(--wholesale);line-height:1.6">
@@ -1947,6 +1958,35 @@
     render();
   }
 
+  // ออเดอร์ที่ส่งขึ้น Sheet ไม่สำเร็จ ต้องถูกส่งซ้ำ ไม่ใช่ค้างอยู่ในเครื่องลูกค้าเงียบๆ
+  let _retryingOrders = false;
+  async function retryPendingOrders() {
+    if (_retryingOrders || !centralApiUrl()) return 0;
+    const pending = [...(S.orders || []), ...(S.sheetOrders || [])]
+      .filter(o => o && o.pendingSync);
+    // ออเดอร์เดียวกันอยู่ทั้งสองกอง — ส่งครั้งเดียวพอ
+    const seen = {};
+    const todo = pending.filter(o => (seen[o.po] ? false : (seen[o.po] = true)));
+    if (!todo.length) return 0;
+    _retryingOrders = true;
+    let done = 0;
+    try {
+      for (const o of todo) {
+        if (await pushOrderToSheet(o)) {
+          done++;
+          [S.orders, S.sheetOrders || []].forEach(list => {
+            const it = list.find(x => x && x.po === o.po);
+            if (it) delete it.pendingSync;
+          });
+        }
+      }
+      if (done) { saveState(); toast(`↑ ส่งออเดอร์ที่ค้าง ${done} รายการขึ้นระบบร้านแล้ว`); }
+    } finally {
+      _retryingOrders = false;
+    }
+    return done;
+  }
+
   async function pushOrderToSheet(order) {
     try {
       const res = await apiCall("createOrder", { data: order }, true);
@@ -1991,6 +2031,17 @@
     delivered: { th: "รับสินค้าแล้ว", color: "var(--success)", icon: "✅", desc: "เรียบร้อยแล้ว" },
     cancelled: { th: "ยกเลิก", color: "#DC2626", icon: "❌", desc: "" },
   };
+  // ชีตแก้ด้วยมือได้ — สถานะที่ไม่รู้จักต้องได้ป้ายสำรอง ไม่ใช่ทำให้ทั้งหน้าว่าง
+  function statusInfo(st) {
+    return STATUS_LABEL[st] || { th: String(st || 'ไม่ระบุ'), color: '#666', icon: '❓', desc: '' };
+  }
+
+  // items ในชีตอาจเป็นข้อความพัง/ว่าง — ต้องได้ array เสมอ
+  function orderItems(o) {
+    const it = o && o.items;
+    return Array.isArray(it) ? it.filter(Boolean) : [];
+  }
+
   function statusIndex(s) { return STATUS_FLOW.indexOf(s); }
   function advanceOrder(po) {
     const o = S.orders.find(x => x.po === po);
@@ -2004,7 +2055,7 @@
         o.carrierName = { kerry: "Kerry Express", flash: "Flash Express", pickup: "รับเองที่คลัง" }[o.shippingMethod];
       }
       saveState();
-      toast(`✓ อัพเดต: ${STATUS_LABEL[o.status].th}`);
+      toast(`✓ อัพเดต: ${statusInfo(o.status).th}`);
       render();
     }
   }
@@ -2121,22 +2172,28 @@
 
   // สินค้าในตะกร้าที่หาไม่เจอแล้ว (ถูกลบ/เปลี่ยนรหัส) — ใช้เช็คก่อนคิดเงิน
   function missingCartItems() {
-    return (S.cart || []).filter(i => !EP.find(x => x.id === i.pid));
+    return cartItems().filter(i => !EP.find(x => x.id === i.pid));
+  }
+
+  // แถวที่เป็น null/พัง เคยทำให้ทั้งหน้าตะกร้าว่างเปล่า — กรองทิ้งตั้งแต่ต้นทาง
+  function cartItems() {
+    return (S.cart || []).filter(i => i && typeof i === 'object' && i.pid);
   }
 
   function removeMissingCartItems() {
     const before = (S.cart || []).length;
-    S.cart = (S.cart || []).filter(i => EP.find(x => x.id === i.pid));
+    S.cart = cartItems().filter(i => EP.find(x => x.id === i.pid));
     saveState(); updateCartBadge();
     toast(`ลบสินค้าที่ไม่มีแล้วออก ${before - S.cart.length} รายการ`);
     render();
   }
-  function cartCount() { return S.cart.reduce((s, i) => s + i.qty, 0); }
+  function cartCount() { return cartItems().reduce((s, i) => s + (Number(i.qty) || 0), 0); }
   function cartSubtotal() {
-    return (S.cart || []).reduce((s, i) => {
+    return cartItems().reduce((s, i) => {
       const p = EP.find(x => x.id === i.pid);
       if (!p) return s;                       // ไม่รู้ราคา ก็ไม่เอามาคิดเงิน
-      return s + priceOf(p, i.qty, itemVariant(i, p)) * (Number(i.qty) || 0);
+      const qty = Math.max(0, Number(i.qty) || 0);
+      return s + priceOf(p, qty, itemVariant(i, p)) * qty;
     }, 0);
   }
   function findCoupon(code) {
@@ -2301,10 +2358,10 @@
 
   // น้ำหนักรวมตะกร้า (kg) — สินค้าที่ไม่ได้กรอกน้ำหนักคิดเป็น 1kg กันตกหล่น
   function cartWeight() {
-    return S.cart.reduce((sum, i) => {
+    return cartItems().reduce((sum, i) => {
       const p = EP.find(x => x.id === i.pid);
       const w = Number(variantWeight(p, itemVariant(i, p))) || 1;
-      return sum + w * (Number(i.qty) || 0);
+      return sum + w * Math.max(0, Number(i.qty) || 0);
     }, 0);
   }
 
@@ -2422,8 +2479,10 @@
   // ที่อยู่ที่ "กำลังจะส่งจริง" — ต้องเป็นอันที่ลูกค้าเลือก ไม่ใช่อันที่ตั้ง Default ไว้
   // เดิมดู isDefault อย่างเดียว เลือกที่อยู่อื่นแล้วค่าส่งไม่เปลี่ยนตาม
   function currentShipAddress() {
-    const list = (typeof getUserAddresses === 'function' ? getUserAddresses() : null)
-      || (S.user && S.user.addresses) || [];
+    let list = (typeof getUserAddresses === 'function' ? getUserAddresses() : null) || [];
+    // [] เป็นค่า truthy — ต้องเช็คความยาว ไม่ใช่ใช้ || เฉยๆ ไม่งั้นที่อยู่ใน S.user ไม่เคยถูกใช้
+    if (!list.length && S.user && Array.isArray(S.user.addresses)) list = S.user.addresses;
+    list = list.filter(a => a && typeof a === 'object');   // แถวว่างที่ค้างในเครื่องต้องไม่ทำให้พัง
     if (!list.length) return null;
     return (S.coAddressId && list.find(a => a.id === S.coAddressId))
       || list.find(a => a.isDefault)
@@ -2530,7 +2589,7 @@
     const sel = opts && opts.length ? opts : (size ? [size] : (p ? defaultOpts(p) : []));
     const key = variantKey(sel);
     const label = optsLabel(sel) || size || null;
-    const existing = S.cart.find(i => i.pid === pid && variantKey(itemOpts(i)) === key);
+    const existing = cartItems().find(i => i.pid === pid && variantKey(itemOpts(i)) === key);
     if (existing) existing.qty += qty;
     else {
       const v = p ? variantOf(p, sel) : null;
@@ -2862,23 +2921,24 @@
   }
 
   function productCard(p) {
-    const price = S.mode === "wholesale" ? p.wholesale : p.retail;
+    // ชีตกรอกราคาไม่ครบ ต้องโชว์ 0 ไม่ใช่ทำให้ทั้งหน้าไม่ขึ้น
+    const price = Number(S.mode === "wholesale" ? p.wholesale : p.retail) || 0;
     const tier = S.mode === "wholesale"
-      ? `<div class="card-tier">✓ ราคาส่ง · ขั้นต่ำ ${p.moq}</div>`
-      : `<div class="card-tier">ส่งเริ่ม ${money(p.wholesale)} (จาก ${p.moq})</div>`;
-    return `<div class="card" onclick="go('/product/${p.id}')">
+      ? `<div class="card-tier">✓ ราคาส่ง · ขั้นต่ำ ${Number(p.moq) || 1}</div>`
+      : `<div class="card-tier">ส่งเริ่ม ${money(p.wholesale)} (จาก ${Number(p.moq) || 1})</div>`;
+    return `<div class="card" onclick="go('/product/'+${jsStr(p.id)})">
       <div class="card-img">
-        ${p.cover ? `<img src="${p.cover}" alt="${p.name}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">` : ''}
-        <div class="card-icon-fallback" ${p.cover ? 'style="display:none"' : ''}>${p.icon}</div>
-        <div class="badge-disc">-${p.discount}%</div>
+        ${p.cover ? `<img src="${esc(p.cover)}" alt="${esc(p.name)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">` : ''}
+        <div class="card-icon-fallback" ${p.cover ? 'style="display:none"' : ''}>${esc(p.icon || '📦')}</div>
+        <div class="badge-disc">-${Number(p.discount) || 0}%</div>
         ${p.mall ? `<div class="badge-mall">iamplastic</div>` : ""}
-        <button class="wish-btn" onclick="event.stopPropagation();toggleWishlist('${p.id}')" title="รายการโปรด"
+        <button class="wish-btn" onclick="event.stopPropagation();toggleWishlist(${jsStr(p.id)})" title="รายการโปรด"
           style="position:absolute;top:6px;right:6px;background:rgba(255,255,255,.92);border:none;width:32px;height:32px;border-radius:50%;font-size:16px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.15)">
           ${isInWishlist(p.id) ? '❤️' : '🤍'}
         </button>
       </div>
       <div class="card-body">
-        <div class="card-name">${p.name}</div>
+        <div class="card-name">${esc(p.name)}</div>
         <div class="card-price-row">
           <span class="card-price"><span class="thb">฿</span>${price.toLocaleString("th-TH", { minimumFractionDigits: price%1?2:0 })}</span>
           <span class="card-strike">${money(p.strike)}</span>
@@ -2886,10 +2946,10 @@
         ${tier}
         <div class="card-meta"><span class="rating">★ ${p.rating}</span><span>ขาย ${p.sold}</span></div>
         <div class="card-actions" onclick="event.stopPropagation()">
-          <button class="card-btn card-btn-cart" onclick="event.stopPropagation();quickAddToCart('${p.id}');" title="ใส่ตะกร้า">
+          <button class="card-btn card-btn-cart" onclick="event.stopPropagation();quickAddToCart(${jsStr(p.id)});" title="ใส่ตะกร้า">
             <span>🛒</span> ใส่ตะกร้า
           </button>
-          <button class="card-btn card-btn-buy" onclick="event.stopPropagation();quickBuyNow('${p.id}');" title="ซื้อเลย">
+          <button class="card-btn card-btn-buy" onclick="event.stopPropagation();quickBuyNow(${jsStr(p.id)});" title="ซื้อเลย">
             ⚡ ซื้อเลย
           </button>
         </div>
@@ -3168,7 +3228,7 @@
         `).join("")}
       </div>
 
-      <div class="section-head"><h2>${S.searchQ ? `ผลการค้นหา "${S.searchQ}"` : "สินค้าแนะนำ"}</h2><span style="font-size:12px;color:var(--text-muted)">แสดง ${shown.length} จาก ${list.length} รายการ</span></div>
+      <div class="section-head"><h2>${S.searchQ ? `ผลการค้นหา "${esc(S.searchQ)}"` : "สินค้าแนะนำ"}</h2><span style="font-size:12px;color:var(--text-muted)">แสดง ${shown.length} จาก ${list.length} รายการ</span></div>
       ${toggleBar(true)}
       <div class="grid">${shown.map(productCard).join("") || `<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--text-muted)">ไม่พบสินค้าที่ค้นหา</div>`}</div>
       ${remaining > 0 ? `<div style="text-align:center;padding:24px 0"><button class="btn btn-outline btn-big" onclick="S.homeLimit=(S.homeLimit||40)+40;render()">โหลดเพิ่มอีก ${Math.min(40, remaining)} รายการ ↓</button></div>` : ''}
@@ -3219,15 +3279,15 @@
     const outNow = variantSoldOut(p, vr);
     if (S.pdQty > stock && stock > 0) S.pdQty = stock;
     return `
-      <div class="pd-crumb"><span onclick="go('/')">หน้าแรก</span> › <span onclick="go('/cat/${p.cat}')">${CATS.find(c=>c.id===p.cat)?.name || ''}</span> › <span class="brand">${p.name.split(' ').slice(0,3).join(' ')}</span></div>
+      <div class="pd-crumb"><span onclick="go('/')">หน้าแรก</span> › <span onclick="go('/cat/${p.cat}')">${CATS.find(c=>c.id===p.cat)?.name || ''}</span> › <span class="brand">${esc(String(p.name || p.id || '').split(' ').slice(0,3).join(' '))}</span></div>
       <div class="pd">
         <div>
           <div class="pd-gallery-big" id="pd-gallery-big">
-            ${vimage ? `<img src="${vimage}" alt="${p.name}" onerror="this.style.display='none';this.parentNode.querySelector('.pd-icon-fallback').style.display='grid'">` : ''}
+            ${vimage ? `<img src="${esc(vimage)}" alt="${esc(p.name)}" onerror="this.style.display='none';this.parentNode.querySelector('.pd-icon-fallback').style.display='grid'">` : ''}
             <div class="pd-icon-fallback" ${vimage ? 'style="display:none"' : ''}>${p.icon}</div>
           </div>
           <div class="pd-gallery-thumbs">
-            ${(p.images && p.images.length ? p.images : [p.cover].filter(Boolean)).slice(0, 6).map((img, i) => img ? `<div class="pd-thumb ${i===0?'on':''}" onclick="document.querySelector('#pd-gallery-big img').src='${img}'"><img src="${img}" loading="lazy" onerror="this.style.display='none';this.parentNode.textContent='📸'"></div>` : `<div class="pd-thumb">📸</div>`).join('')}
+            ${(Array.isArray(p.images) && p.images.length ? p.images : [p.cover].filter(Boolean)).slice(0, 6).map((img, i) => img ? `<div class="pd-thumb ${i===0?'on':''}" onclick="document.querySelector('#pd-gallery-big img').src='${img}'"><img src="${img}" loading="lazy" onerror="this.style.display='none';this.parentNode.textContent='📸'"></div>` : `<div class="pd-thumb">📸</div>`).join('')}
           </div>
         </div>
         <div>
@@ -3235,7 +3295,7 @@
             ${p.mall ? '<span class="mall">iamplastic OFFICIAL</span>' : ''}
             <span class="disc">FLASH -${p.discount}%</span>
           </div>
-          <h1 class="pd-name">${p.name}</h1>
+          <h1 class="pd-name">${esc(p.name)}</h1>
           <div class="pd-meta">
             <span class="rating">★ ${p.rating}</span> ·
             <span>ขายแล้ว ${p.sold}</span> ·
@@ -3251,7 +3311,7 @@
             <div class="pd-tier">
               <div class="pd-tier-h">🏭 ราคาส่ง (B2B) — ยิ่งสั่งเยอะยิ่งถูก</div>
               <table>
-                ${p.tiers.map((t, i) => {
+                ${(Array.isArray(p.tiers) ? p.tiers : []).map((t, i) => {
                   const isHi = i === p.tiers.length - 1;
                   const pct = Math.round((1 - t[2]/p.strike) * 100);
                   return `<tr class="${isHi?'hi':''}"><td>${t[0]}-${t[1]===9999||t[1]===99999?'∞':t[1]} แพ็ค</td><td style="text-align:right">${money(t[2])} / แพ็ค <span style="color:var(--wholesale)">(-${pct}%)</span></td></tr>`;
@@ -3284,7 +3344,7 @@
               <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:12px;margin-top:4px">
                 <span style="color:var(--text-muted)">ราคา <b class="mono" style="color:var(--brand)">${money(cur)}</b>/แพ็ค</span>
                 <span style="color:var(--text-muted)">${vweight > 0 ? `น้ำหนัก ${vweight} kg` : ''}</span>
-                <span style="color:${outNow ? '#DC2626' : 'var(--text-muted)'}">${outNow ? 'สินค้าหมด' : `เหลือ ${stock.toLocaleString()} แพ็ค`}</span>
+                <span style="color:${outNow ? '#DC2626' : 'var(--text-muted)'}">${outNow ? 'สินค้าหมด' : `เหลือ ${Number(stock || 0).toLocaleString()} แพ็ค`}</span>
               </div>
               ${vr && vr.desc ? `<div style="font-size:12px;margin-top:6px;line-height:1.6">${esc(String(vr.desc))}</div>` : ''}
             </div>
@@ -3298,14 +3358,14 @@
                 <input type="number" value="${S.pdQty}" min="1" max="${stock}" oninput="S.pdQty=Math.max(1,parseInt(this.value)||1)" onchange="render()">
                 <button onclick="S.pdQty=Math.min(${stock},S.pdQty+1);render()">+</button>
               </div>
-              <div style="font-size:12px;color:var(--text-muted)">เหลือ ${stock.toLocaleString()} แพ็ค${S.mode==='wholesale' && S.pdQty < p.moq ? ` · <b style="color:var(--brand)">ราคาส่งขั้นต่ำ ${p.moq} แพ็ค</b>` : ''}</div>
+              <div style="font-size:12px;color:var(--text-muted)">เหลือ ${Number(stock || 0).toLocaleString()} แพ็ค${S.mode==='wholesale' && S.pdQty < p.moq ? ` · <b style="color:var(--brand)">ราคาส่งขั้นต่ำ ${p.moq} แพ็ค</b>` : ''}</div>
             </div>
           </div>
 
           <div class="pd-actions">
             ${outNow ? `<button class="btn btn-outline btn-big" disabled style="flex:1;opacity:.5;cursor:not-allowed">ตัวเลือกนี้สินค้าหมด</button>` : `
-              <button class="btn btn-outline btn-big" onclick="addFromPd('${p.id}')">🛒 เพิ่มลงตะกร้า</button>
-              <button class="btn btn-primary btn-big" onclick="buyNow('${p.id}')" style="flex:1">ซื้อเลย</button>
+              <button class="btn btn-outline btn-big" onclick="addFromPd(${jsStr(p.id)})">🛒 เพิ่มลงตะกร้า</button>
+              <button class="btn btn-primary btn-big" onclick="buyNow(${jsStr(p.id)})" style="flex:1">ซื้อเลย</button>
             `}
           </div>
 
@@ -3323,7 +3383,7 @@
         <!-- Description -->
         <section class="pd-section">
           <h3 class="pd-h3">📋 รายละเอียดสินค้า</h3>
-          <div class="pd-desc">${p.desc || 'ยังไม่มีคำอธิบาย'}</div>
+          <div class="pd-desc">${esc(p.desc || 'ยังไม่มีคำอธิบาย')}</div>
         </section>
 
         <!-- Specs -->
@@ -3336,7 +3396,7 @@
             ${groups.length ? `<tr><td>ที่เลือกอยู่</td><td><b>${esc(optsLabel(S.pdSel) || '-')}</b></td></tr>` : ''}
             ${vweight ? `<tr><td>น้ำหนักต่อแพ็ค</td><td class="mono">${vweight} kg</td></tr>` : ''}
             ${p.dimensions ? `<tr><td>ขนาดกล่อง (กว้าง×ยาว×สูง)</td><td class="mono">${p.dimensions}</td></tr>` : ''}
-            <tr><td>สต็อกคงเหลือ</td><td class="mono">${stock.toLocaleString()} แพ็ค</td></tr>
+            <tr><td>สต็อกคงเหลือ</td><td class="mono">${Number(stock || 0).toLocaleString()} แพ็ค</td></tr>
             <tr><td>ราคาปลีก</td><td class="mono">${money(priceOfMode(p, vr, 'retail'))} / แพ็ค</td></tr>
             <tr><td>ราคาส่ง (เริ่มต้น)</td><td class="mono" style="color:var(--wholesale)">${money(priceOfMode(p, vr, 'wholesale'))} / แพ็ค</td></tr>
             <tr><td>ขั้นต่ำสั่งราคาส่ง</td><td class="mono">${p.moq} แพ็ค</td></tr>
@@ -3364,7 +3424,7 @@
                     <td>${esc(String(v.key).split('|').join(' / '))}${on ? ' ✓' : ''}</td>
                     <td class="mono" style="font-size:11px">${esc(variantSku(p, v))}</td>
                     <td class="mono">${money(priceOf(p, S.pdQty, v))}</td>
-                    <td>${dead ? '<span style="color:#DC2626">หมด</span>' : variantStock(p, v).toLocaleString()}</td>
+                    <td>${dead ? '<span style="color:#DC2626">หมด</span>' : Number(variantStock(p, v) || 0).toLocaleString()}</td>
                   </tr>`;
                 }).join('')}
               </table>
@@ -3498,7 +3558,7 @@
       <div class="cart-page">
         <div class="cart-items">
           <div class="cart-head-row"><div></div><div>สินค้า</div><div>ราคา</div><div>จำนวน</div><div style="text-align:right">รวม</div><div></div></div>
-          ${S.cart.map((item, idx) => {
+          ${cartItems().map((item, idx) => {
             const p = EP.find(x => x.id === item.pid);
             // สินค้าหาไม่เจอ (ถูกลบ/เปลี่ยนรหัส) — ต้องแสดงแถวให้กดลบได้
             // เดิมพังทั้งหน้า ลูกค้าเลยกดตะกร้าแล้วไม่ขึ้นอะไรและลบของก็ไม่ได้
@@ -3538,7 +3598,7 @@
         <div class="summary">
           <h3>สรุปคำสั่งซื้อ</h3>
           <div class="coupon-row">
-            <input id="coupon-inp" placeholder="รหัสคูปอง (ลอง: NEW100)" value="${S.coupon}">
+            <input id="coupon-inp" placeholder="รหัสคูปอง (ลอง: NEW100)" value="${esc(S.coupon)}">
             <button class="btn btn-primary" onclick="applyCoupon()">ใช้</button>
           </div>
           ${S.coupon === "NEW100" ? `<div class="coupon-active">✓ ใช้โค้ด <b>NEW100</b> แล้ว (−฿100)</div>` : ''}
@@ -3567,7 +3627,7 @@
       S.coupon = c.code;
       saveState();
       const label = c.kind==='percent' ? `${c.value}%` : `฿${c.value}`;
-      toast(`ใช้คูปอง ${c.code} ลด ${label} แล้ว`);
+      toast(`ใช้คูปอง ${esc(c.code)} ลด ${label} แล้ว`);
     } else {
       S.coupon = ""; saveState();
       toast("ไม่พบคูปองนี้ / หมดอายุ / ใช้ครบแล้ว");
@@ -3602,16 +3662,16 @@
                 ${isLoggedIn() && addresses.length > 0 ? `
                   <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
                     ${addresses.map(a => `
-                      <div onclick="S.coAddressId='${a.id}';render()" style="border:2px solid ${S.coAddressId===a.id?'var(--brand)':'var(--border)'};background:${S.coAddressId===a.id?'var(--brand-soft)':'var(--surface)'};border-radius:8px;padding:12px 14px;cursor:pointer;display:flex;gap:12px;align-items:flex-start;transition:all .15s">
+                      <div onclick="S.coAddressId='${esc(a.id)}';render()" style="border:2px solid ${S.coAddressId===a.id?'var(--brand)':'var(--border)'};background:${S.coAddressId===a.id?'var(--brand-soft)':'var(--surface)'};border-radius:8px;padding:12px 14px;cursor:pointer;display:flex;gap:12px;align-items:flex-start;transition:all .15s">
                         <div style="width:18px;height:18px;border-radius:99px;border:2px solid ${S.coAddressId===a.id?'var(--brand)':'var(--border)'};background:${S.coAddressId===a.id?'var(--brand)':'#fff'};flex-shrink:0;margin-top:2px;position:relative">${S.coAddressId===a.id?'<div style="position:absolute;top:2px;left:2px;right:2px;bottom:2px;background:#fff;border-radius:99px"></div>':''}</div>
                         <div style="flex:1">
                           <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
-                            <span style="font-weight:700;font-size:13px">${a.label}</span>
+                            <span style="font-weight:700;font-size:13px">${esc(a.label)}</span>
                             ${a.isDefault?'<span style="font-size:9px;background:var(--brand);color:#fff;padding:1px 6px;border-radius:99px;font-weight:700">Default</span>':''}
                           </div>
-                          <div style="font-size:12px;line-height:1.5"><b>${a.name}</b> · ${a.phone}<br>${a.fullAddress}</div>
+                          <div style="font-size:12px;line-height:1.5"><b>${esc(a.name)}</b> · ${esc(a.phone)}<br>${esc(a.fullAddress)}</div>
                         </div>
-                        <a onclick="event.stopPropagation();go('/account/address/${a.id}')" style="color:var(--brand);cursor:pointer;font-size:11px;flex-shrink:0">✏️ แก้ไข</a>
+                        <a onclick="event.stopPropagation();go('/account/address/'+${jsStr(a.id)})" style="color:var(--brand);cursor:pointer;font-size:11px;flex-shrink:0">✏️ แก้ไข</a>
                       </div>
                     `).join('')}
                   </div>
@@ -3709,7 +3769,7 @@
         <!-- Summary -->
         <div class="summary">
           <h3>คำสั่งซื้อของคุณ</h3>
-          ${S.cart.map(item => {
+          ${cartItems().map(item => {
             const p = EP.find(x => x.id === item.pid);
             if (!p) return `<div class="ord-line" style="opacity:.7">
               <div class="th">❓</div>
@@ -3890,17 +3950,22 @@
     clearCart();
     // ออเดอร์ต้องขึ้น Sheet ให้ได้ — รอผลก่อน อย่าเพิ่งเด้งไปหน้าสำเร็จ
     // (เดิมติดเงื่อนไข autoSync + fire-and-forget + go() ทันที = ออเดอร์หลุดหายเงียบๆ)
-    if (S.sheetApiUrl) {
+    if (centralApiUrl()) {
       toast("⏳ กำลังบันทึกออเดอร์...");
-      const ok = await pushOrderToSheet(order);
+      // Apps Script สะดุดเป็นครั้งคราว (cold start / คิวชนกัน) — ลองซ้ำก่อนค่อยยอมแพ้
+      let ok = await pushOrderToSheet(order);
+      if (!ok) ok = await pushOrderToSheet(order);
       if (ok) {
         toast(`✓ บันทึกออเดอร์ ${poNo} เรียบร้อย`);
       } else {
         order.pendingSync = true;
         saveState();
-        toast(`⚠️ ออเดอร์ ${poNo} ยังไม่ขึ้นระบบกลาง — จะลองส่งใหม่ให้อัตโนมัติ`);
+        toast(`✓ รับออเดอร์ ${poNo} แล้ว · กำลังส่งเข้าระบบร้าน ถ้าไม่มีใครติดต่อกลับใน 1 ชม. รบกวนแจ้งทาง LINE`);
+        console.error("[order] ส่งขึ้น Sheet ไม่สำเร็จ — ค้างไว้ที่ pendingSync", poNo);
       }
     } else {
+      order.pendingSync = true;
+      saveState();
       console.warn("[order] Sheet ไม่ได้เชื่อม — order เก็บใน localStorage อย่างเดียว");
     }
     go('/success/' + poNo);
@@ -3910,10 +3975,10 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 78;
+  const APP_VERSION = 80;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
-  const NEED_BACKEND = 51;
+  const NEED_BACKEND = 52;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -4143,9 +4208,12 @@
   // =======================================================
   function getUserAddresses() {
     if (!S.user) return [];
+    const clean = list => (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object');
     // ถ้ามีใน registeredUsers ให้ sync จากนั้น
     const registered = S.registeredUsers.find(u => u.phone === S.user.phone || u.email === S.user.email);
-    if (registered && registered.addresses) return registered.addresses;
+    if (registered && clean(registered.addresses).length) return clean(registered.addresses);
+    // เครื่องที่ 2: registeredUsers เป็นของเครื่องนี้เครื่องเดียว แต่ที่อยู่มากับ user ตอนล็อกอินผ่าน Sheet
+    if (clean(S.user.addresses).length) return clean(S.user.addresses);
     // Fallback: สร้าง default จาก user data
     if (S.user.address) {
       return [{
@@ -4187,18 +4255,18 @@
               <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
                 <div style="flex:1;min-width:200px">
                   <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                    <span style="font-weight:700;font-size:15px">${a.label || 'ที่อยู่'}</span>
+                    <span style="font-weight:700;font-size:15px">${esc(a.label || 'ที่อยู่')}</span>
                     ${a.isDefault?'<span style="font-size:10px;background:var(--brand);color:#fff;padding:2px 8px;border-radius:99px;font-weight:700">Default</span>':''}
                   </div>
                   <div style="font-size:13px;line-height:1.6">
-                    <b>${a.name}</b> · ${a.phone}<br>
-                    ${a.fullAddress}
+                    <b>${esc(a.name)}</b> · ${esc(a.phone)}<br>
+                    ${esc(a.fullAddress)}
                   </div>
                 </div>
                 <div style="display:flex;gap:6px;flex-wrap:wrap">
-                  ${!a.isDefault?`<button class="btn btn-ghost" onclick="setDefaultAddress('${a.id}')" style="font-size:11px">⭐ ตั้งเป็น default</button>`:''}
-                  <button class="btn btn-outline" onclick="go('/account/address/${a.id}')">✏️ แก้ไข</button>
-                  ${!a.isDefault?`<button class="btn btn-ghost" onclick="deleteAddress('${a.id}')" style="color:#DC2626">🗑️ ลบ</button>`:''}
+                  ${!a.isDefault?`<button class="btn btn-ghost" onclick="setDefaultAddress(${jsStr(a.id)})" style="font-size:11px">⭐ ตั้งเป็น default</button>`:''}
+                  <button class="btn btn-outline" onclick="go('/account/address/'+${jsStr(a.id)})">✏️ แก้ไข</button>
+                  ${!a.isDefault?`<button class="btn btn-ghost" onclick="deleteAddress(${jsStr(a.id)})" style="color:#DC2626">🗑️ ลบ</button>`:''}
                 </div>
               </div>
             </div>
@@ -4707,9 +4775,19 @@
     const passHash = await hashPassword(password, salt);
 
     let synced = false;
-    if (S.sheetApiUrl) {
+    if (centralApiUrl()) {
       toast("⏳ กำลังบันทึกข้อมูล...");
-      synced = await pushCustomerToSheet({ ...userData, passHash, passSalt: salt });
+      const res = await pushCustomerToSheet({ ...userData, passHash, passSalt: salt });
+      synced = res.ok;
+      if (res.exists) {
+        // มีบัญชีนี้อยู่แล้ว — ห้ามสร้างบัญชีในเครื่องทับ ไม่งั้นล็อกอินสับสน
+        S.registeredUsers = S.registeredUsers.filter(u => u !== userData);
+        S.user = null;
+        saveState();
+        toast("⛔ " + (res.error || 'มีบัญชีนี้อยู่แล้ว'));
+        setTimeout(() => go('/forgot'), 1500);
+        return;
+      }
       if (synced) {
         safeSet('iamplastic.meSynced', Date.now());
         await pullCustomersFromSheet().catch(()=>{});
@@ -4756,10 +4834,11 @@
 
       const res = await apiCall("registerCustomer", { data: safe }, true);
       if (!(res && res.ok)) console.error("[pushCustomerToSheet] backend:", res && res.error);
-      return !!(res && res.ok);
+      // exists = มีบัญชีนี้อยู่แล้วและมีรหัสผ่านแล้ว — ไม่ใช่ปัญหาเครือข่าย ห้ามลองส่งซ้ำ
+      return { ok: !!(res && res.ok), exists: !!(res && res.exists), error: (res && res.error) || '' };
     } catch (e) {
       console.error("pushCustomerToSheet:", e);
-      return false;
+      return { ok: false, exists: false, error: e.message || String(e) };
     }
   }
 
@@ -4777,7 +4856,8 @@
     const last = safeGet(key, 0);
     const wait = me.pendingSync ? 60 * 1000 : 12 * 60 * 60 * 1000;
     if (Date.now() - last < wait) return;
-    const ok = await pushCustomerToSheet(me);
+    const res = await pushCustomerToSheet(me);
+    const ok = res.ok || res.exists;   // มีในระบบแล้ว = ถือว่า sync จบ ไม่ต้องยิงซ้ำทุกนาที
     if (ok) {
       safeSet(key, Date.now());
       if (me.pendingSync) {
@@ -4803,7 +4883,8 @@
     let done = 0;
     for (let i = 0; i < missing.length; i++) {
       toast(`⏳ กำลังส่ง ${i+1}/${missing.length}...`);
-      if (await pushCustomerToSheet(missing[i])) { delete missing[i].pendingSync; done++; }
+      const r = await pushCustomerToSheet(missing[i]);
+      if (r.ok || r.exists) { delete missing[i].pendingSync; done++; }   // exists = มีในระบบแล้ว ไม่ต้องส่งซ้ำอีก
     }
     saveState();
     await pullCustomersFromSheet().catch(()=>{});
@@ -5027,6 +5108,7 @@
       setSyncing(false);
     }
     syncMyAccountToSheet().catch(()=>{});
+    retryPendingOrders().catch(()=>{});
   }
 
   // วิธี deploy แบบกดดูได้ทันที — เดิมซ่อนอยู่ใต้ผลตรวจสอบที่ต้องรอ 30 วินาที
@@ -5164,16 +5246,16 @@
         <table class="admin-table">
           <thead><tr><th>PO</th><th>ลูกค้า</th><th>สถานะ</th><th style="text-align:right">ยอด</th><th>วันที่</th><th>Actions</th></tr></thead>
           <tbody>${orders.slice(0, 5).map(o => `<tr>
-            <td class="mono" style="font-weight:700">${o.po}</td>
-            <td>${(o.customer||{}).name || '-'}</td>
+            <td class="mono" style="font-weight:700">${esc(o.po)}</td>
+            <td>${esc((o.customer||{}).name || '-')}</td>
             <td><span style="background:${STATUS_LABEL[o.status]?.color||'#666'};color:#fff;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600">${STATUS_LABEL[o.status]?.icon} ${STATUS_LABEL[o.status]?.th}</span></td>
             <td class="mono" style="text-align:right;font-weight:700">${money(o.total||0)}</td>
             <td style="font-size:11px">${new Date(o.createdAt).toLocaleString('th-TH')}</td>
             <td>
-              <button class="admin-btn" onclick="go('/admin/order/${o.po}')">👁️</button>
+              <button class="admin-btn" onclick="go('/admin/order/'+${jsStr(o.po)})">👁️</button>
               ${orderBlockReason(o)
                 ? `<button class="admin-btn" style="opacity:.45" onclick="toast('⛔ ${esc(orderBlockReason(o))}')" title="${esc(orderBlockReason(o))}">🔒</button>`
-                : `<button class="admin-btn" onclick="go('/admin/bill/${o.po}')">🧾</button>`}
+                : `<button class="admin-btn" onclick="go('/admin/bill/'+${jsStr(o.po)})">🧾</button>`}
             </td>
           </tr>`).join('')}</tbody>
         </table>
@@ -5220,7 +5302,7 @@
               const p = EP.find(x=>x.id===pid) || { name: pid, icon:'📦' };
               return `<tr style="cursor:pointer" onclick="go('/product/${pid}')">
                 <td style="font-weight:700;color:var(--brand)">${i+1}</td>
-                <td style="font-size:12px">${p.icon||'📦'} ${(p.name||pid).slice(0,50)}</td>
+                <td style="font-size:12px">${esc(p.icon||'📦')} ${esc((p.name||pid).slice(0,50))}</td>
                 <td class="mono" style="text-align:right;font-weight:700">${qty}</td>
               </tr>`;
             }).join('')}
@@ -5230,8 +5312,8 @@
           <h3 style="margin:0 0 12px">⚠️ สต็อกใกล้หมด (< 20)</h3>
           ${lowStock.length===0?'<div style="padding:16px;text-align:center;color:var(--success);font-size:13px">✅ สต็อกทุกตัวปกติ</div>':`
           <table class="admin-table"><thead><tr><th>สินค้า</th><th style="text-align:right">คงเหลือ</th></tr></thead><tbody>
-            ${lowStock.map(p => `<tr style="cursor:pointer" onclick="go('/admin/edit/${p.id}')">
-              <td style="font-size:12px">${p.icon||'📦'} ${(p.name||'').slice(0,50)}</td>
+            ${lowStock.map(p => `<tr style="cursor:pointer" onclick="go('/admin/edit/'+${jsStr(p.id)})">
+              <td style="font-size:12px">${esc(p.icon||'📦')} ${esc((p.name||'').slice(0,50))}</td>
               <td class="mono" style="text-align:right;font-weight:700;color:${Number(p.stock)<5?'#ef4444':'#f59e0b'}">${p.stock}</td>
             </tr>`).join('')}
           </tbody></table>`}
@@ -5326,21 +5408,21 @@
               const st = STATUS_LABEL[o.status] || { color: '#666', icon: '❓', th: o.status };
               const nextStatus = STATUS_FLOW[STATUS_FLOW.indexOf(o.status) + 1];
               return `<tr>
-                <td class="mono" style="font-weight:700;color:var(--brand)">${o.po}</td>
+                <td class="mono" style="font-weight:700;color:var(--brand)">${esc(o.po)}</td>
                 <td>
-                  <div style="font-weight:600">${(o.customer||{}).name || '-'}</div>
-                  <div style="font-size:11px;color:var(--text-muted)">${(o.customer||{}).phone || ''}</div>
+                  <div style="font-weight:600">${esc((o.customer||{}).name || '-')}</div>
+                  <div style="font-size:11px;color:var(--text-muted)">${esc((o.customer||{}).phone || '')}</div>
                 </td>
                 <td><span style="background:${st.color};color:#fff;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap">${st.icon} ${st.th}</span></td>
                 <td class="mono" style="text-align:right;font-weight:700;color:var(--brand)">${money(o.total||0)}</td>
                 <td style="font-size:11px">${({qr:'📱 QR',bank:'🏦 โอน',cod:'📦 COD',card:'💳 บัตร'})[o.payment]||o.payment}</td>
                 <td style="font-size:11px">${new Date(o.createdAt).toLocaleString('th-TH')}</td>
                 <td>
-                  <button class="admin-btn" onclick="go('/admin/order/${o.po}')" title="ดูรายละเอียด">👁️</button>
+                  <button class="admin-btn" onclick="go('/admin/order/'+${jsStr(o.po)})" title="ดูรายละเอียด">👁️</button>
                   ${orderBlockReason(o)
                     ? `<button class="admin-btn" style="opacity:.45" onclick="toast('⛔ ${esc(orderBlockReason(o))}')" title="${esc(orderBlockReason(o))}">🔒</button>`
-                    : `<button class="admin-btn" onclick="go('/admin/bill/${o.po}')" title="เปิดบิล">🧾</button>`}
-                  ${nextStatus && o.status !== 'cancelled' ? `<button class="admin-btn" onclick="advanceOrderAdmin('${o.po}')" title="${STATUS_LABEL[nextStatus].th}">▶</button>` : ''}
+                    : `<button class="admin-btn" onclick="go('/admin/bill/'+${jsStr(o.po)})" title="เปิดบิล">🧾</button>`}
+                  ${nextStatus && o.status !== 'cancelled' ? `<button class="admin-btn" onclick="advanceOrderAdmin(${jsStr(o.po)})" title="${esc(statusInfo(nextStatus).th)}">▶</button>` : ''}
                 </td>
               </tr>`;
             }).join('')}
@@ -5371,15 +5453,15 @@
       <div class="admin-table-wrap">
         <table class="admin-table"><thead><tr><th>โค้ด</th><th>ส่วนลด</th><th>ขั้นต่ำ</th><th>ใช้แล้ว/จำกัด</th><th>หมดอายุ</th><th>สถานะ</th><th>Actions</th></tr></thead><tbody>
           ${list.map(c=>`<tr>
-            <td class="mono" style="font-weight:700;color:var(--brand)">${c.code}</td>
+            <td class="mono" style="font-weight:700;color:var(--brand)">${esc(c.code)}</td>
             <td>${c.kind==='percent'?c.value+'%':'฿'+c.value}</td>
             <td>${c.minTotal?'฿'+c.minTotal:'-'}</td>
             <td>${c.used||0}${c.maxUses?' / '+c.maxUses:' / ∞'}</td>
             <td style="font-size:11px">${c.expiresAt?new Date(c.expiresAt).toLocaleDateString('th-TH'):'-'}</td>
             <td>${c.active?'<span style="color:#22c55e">✓ ใช้ได้</span>':'<span style="color:#ef4444">✕ ปิด</span>'}</td>
             <td>
-              <button class="admin-btn" onclick="toggleCoupon('${c.code}')" title="เปิด/ปิด">${c.active?'⏸️':'▶️'}</button>
-              <button class="admin-btn" onclick="deleteCouponAdmin('${c.code}')" title="ลบ">🗑️</button>
+              <button class="admin-btn" onclick="toggleCoupon(${jsStr(c.code)})" title="เปิด/ปิด">${c.active?'⏸️':'▶️'}</button>
+              <button class="admin-btn" onclick="deleteCouponAdmin(${jsStr(c.code)})" title="ลบ">🗑️</button>
             </td>
           </tr>`).join('')}
         </tbody></table>
@@ -7173,7 +7255,8 @@
 
   function saveShopSettings() {
     if (!can('settings')) { denyStaff('แก้ไขตั้งค่าร้าน'); return; }
-    const g = id => (document.getElementById('set-'+id)||{}).value.trim();
+    // ช่องไหนไม่มีบนหน้าจอ ต้องได้ค่าว่าง ไม่ใช่ทั้งฟังก์ชันพังแล้วบันทึกไม่ได้เลยสักช่อง
+    const g = id => { const el = document.getElementById('set-' + id); return el ? String(el.value || '').trim() : ''; };
     S.shopName = g('shopName');
     S.shopPhone = g('shopPhone');
     S.shopAddress = g('shopAddress');
@@ -7215,7 +7298,7 @@
   function viewAdminLabel(po) {
     const all = [...allBillsFlat(), ...(S.sheetOrders||[]), ...(S.orders||[])];
     const o = all.find(x => (x.bl||x.po) === po);
-    if (!o) return `<div class="cart-empty"><div>ไม่พบ ${po}</div></div>`;
+    if (!o) return `<div class="cart-empty"><div>ไม่พบ ${esc(po)}</div></div>`;
     const c = o.customer || {};
     return `
       <style>
@@ -7240,7 +7323,7 @@
         <div style="font-size:13px;line-height:1.5;margin-bottom:12px">${c.address||'-'}</div>
         ${o.tracking ? `<div style="border:2px solid #000;padding:6px;text-align:center;margin-top:8px">
           <div style="font-size:10px">TRACKING</div>
-          <div style="font-size:14px;font-weight:900;font-family:monospace">${o.tracking}</div>
+          <div style="font-size:14px;font-weight:900;font-family:monospace">${esc(o.tracking)}</div>
           <div style="font-size:11px">${o.carrierName||o.shippingMethod||''}</div>
         </div>` : ''}
         <div style="margin-top:8px;font-size:11px;text-align:right;color:#666">${new Date(o.createdAt).toLocaleDateString('th-TH')} · ${(o.items||[]).length} ชิ้น</div>
@@ -7255,9 +7338,9 @@
       <div class="wrap" style="max-width:600px;margin:20px auto">
         <h1 style="margin:0 0 16px">👤 โปรไฟล์ของฉัน</h1>
         <div class="co-card" style="margin:0">
-          <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--text-muted)">ชื่อ</span><input id="pf-name" value="${(u.name||'').replace(/"/g,'&quot;')}" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px"></label>
-          <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--text-muted)">เบอร์</span><input id="pf-phone" value="${(u.phone||'')}" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px"></label>
-          <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--text-muted)">อีเมล</span><input id="pf-email" value="${(u.email||'')}" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px" disabled></label>
+          <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--text-muted)">ชื่อ</span><input id="pf-name" value="${esc(u.name||'')}" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px"></label>
+          <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--text-muted)">เบอร์</span><input id="pf-phone" value="${esc(u.phone||'')}" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px"></label>
+          <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--text-muted)">อีเมล</span><input id="pf-email" value="${esc(u.email||'')}" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px" disabled></label>
           <label style="display:block;margin-bottom:12px"><span style="font-size:12px;color:var(--text-muted)">รหัสผ่านใหม่ (ปล่อยว่าง = ไม่เปลี่ยน)</span><input id="pf-pw" type="password" placeholder="อย่างน้อย 6 ตัว" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px"></label>
           <button class="btn btn-primary btn-block btn-big" onclick="saveProfile()">💾 บันทึก</button>
           <a onclick="go('/account/addresses')" style="display:block;text-align:center;margin-top:14px;color:var(--brand);cursor:pointer;font-weight:700">📍 จัดการที่อยู่จัดส่ง</a>
@@ -7622,8 +7705,8 @@
             <table class="admin-table"><thead><tr><th>PO</th><th>วันที่</th><th>สถานะ</th><th style="text-align:right">ยอด</th></tr></thead><tbody>
               ${orders.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,50).map(o=>{
                 const st = STATUS_LABEL[o.status] || { color:'#666', th:o.status, icon:'•' };
-                return `<tr style="cursor:pointer" onclick="go('/admin/order/${o.po}')">
-                  <td class="mono" style="color:var(--brand);font-weight:700">${o.po}</td>
+                return `<tr style="cursor:pointer" onclick="go('/admin/order/'+${jsStr(o.po)})">
+                  <td class="mono" style="color:var(--brand);font-weight:700">${esc(o.po)}</td>
                   <td style="font-size:11px">${new Date(o.createdAt).toLocaleDateString('th-TH')}</td>
                   <td><span style="background:${st.color};color:#fff;padding:2px 8px;border-radius:99px;font-size:10px">${st.icon} ${st.th}</span></td>
                   <td class="mono" style="text-align:right;font-weight:700">${money(o.total||0)}</td>
@@ -7712,20 +7795,20 @@
         <table class="admin-table">
           <thead><tr><th>ลูกค้า</th><th>ติดต่อ</th><th>ประเภท</th><th>ที่อยู่</th><th>สมัคร</th></tr></thead>
           <tbody>
-            ${list.map(u => `<tr style="cursor:pointer" onclick="go('/admin/customer/'+encodeURIComponent('${u.phone||u.email||''}'))">
+            ${list.map(u => `<tr style="cursor:pointer" onclick="go('/admin/customer/'+encodeURIComponent(${jsStr(u.phone||u.email||'')}))">
               <td>
-                <div style="font-weight:700;color:var(--brand)">${u.name || ((u.firstName||'')+' '+(u.lastName||''))}</div>
-                ${u.isCorporate ? `<div style="font-size:11px;color:var(--gold);font-weight:600">🏢 ${u.company||'-'}</div>` : ''}
-                ${u.taxId ? `<div class="mono" style="font-size:11px;color:var(--text-muted)">Tax: ${u.taxId}</div>` : ''}
+                <div style="font-weight:700;color:var(--brand)">${esc(u.name || ((u.firstName||'')+' '+(u.lastName||'')))}</div>
+                ${u.isCorporate ? `<div style="font-size:11px;color:var(--gold);font-weight:600">🏢 ${esc(u.company||'-')}</div>` : ''}
+                ${u.taxId ? `<div class="mono" style="font-size:11px;color:var(--text-muted)">Tax: ${esc(u.taxId)}</div>` : ''}
               </td>
               <td style="font-size:12px">
-                <div>📞 ${u.phone || '-'}</div>
-                <div style="color:var(--text-muted)">✉ ${u.email || '-'}</div>
+                <div>📞 ${esc(u.phone || '-')}</div>
+                <div style="color:var(--text-muted)">✉ ${esc(u.email || '-')}</div>
               </td>
               <td>
                 ${u.isCorporate ? '<span style="background:var(--gold);color:#1a1a1a;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600">🏢 นิติบุคคล</span>' : '<span style="background:#e0e0e0;color:#333;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600">👤 บุคคล</span>'}
               </td>
-              <td style="font-size:12px;max-width:280px">${u.address || '-'}</td>
+              <td style="font-size:12px;max-width:280px">${esc(u.address || '-')}</td>
               <td style="font-size:11px;color:var(--text-muted)">${u.registeredAt ? new Date(u.registeredAt).toLocaleDateString('th-TH') : '-'}</td>
             </tr>`).join('')}
           </tbody>
@@ -7846,33 +7929,33 @@
     const local = S.orders.find(x => x.po === po);
     if (local) { local.status = o.status; local.tracking = o.tracking; local.updatedAt = o.updatedAt; }
     saveState();
-    toast(`✓ ${STATUS_LABEL[nextStatus].th}`);
+    toast(`✓ ${statusInfo(nextStatus).th}`);
     render();
   }
 
   function viewAdminOrderDetail(po) {
     const orders = S.sheetOrders || S.orders || [];
     const o = orders.find(x => x.po === po);
-    if (!o) return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบคำสั่งซื้อ ${po}</div><button class="btn btn-primary" style="margin-top:14px" onclick="go('/admin/orders')">← กลับ</button></div>`;
-    const st = STATUS_LABEL[o.status];
+    if (!o) return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบคำสั่งซื้อ ${esc(po)}</div><button class="btn btn-primary" style="margin-top:14px" onclick="go('/admin/orders')">← กลับ</button></div>`;
+    const st = statusInfo(o.status);
     const nextStatus = STATUS_FLOW[STATUS_FLOW.indexOf(o.status) + 1];
     return `
-      ${adminPageHeader('คำสั่งซื้อ ' + o.po, '📄', `
+      ${adminPageHeader('คำสั่งซื้อ ' + esc(o.po), '📄', `
         <button class="btn btn-outline" onclick="go('/admin/orders')">← กลับ</button>
-        <button class="btn btn-primary" onclick="issueBillFromOrder('${o.po}', false)">📤 บิลเงินสด</button>
-        <button class="btn btn-primary" onclick="issueBillFromOrder('${o.po}', true)" style="background:var(--gold);color:#1a1a1a">🏢 ใบกำกับภาษี</button>
-        <button class="btn btn-outline" onclick="go('/admin/label/${o.po}')">🖨️ Label</button>
-        <button class="btn btn-outline" onclick="go('/admin/bill/${o.po}')">👁️ ดู PO</button>
+        <button class="btn btn-primary" onclick="issueBillFromOrder(${jsStr(o.po)}, false)">📤 บิลเงินสด</button>
+        <button class="btn btn-primary" onclick="issueBillFromOrder(${jsStr(o.po)}, true)" style="background:var(--gold);color:#1a1a1a">🏢 ใบกำกับภาษี</button>
+        <button class="btn btn-outline" onclick="go('/admin/label/'+${jsStr(o.po)})">🖨️ Label</button>
+        <button class="btn btn-outline" onclick="go('/admin/bill/'+${jsStr(o.po)})">👁️ ดู PO</button>
       `)}
       <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
         <div style="display:flex;flex-direction:column;gap:14px">
           <div class="co-card" style="margin:0">
-            <h3 style="margin:0 0 14px">📦 สินค้า (${(o.items||[]).length})</h3>
-            ${(o.items||[]).map(item => {
+            <h3 style="margin:0 0 14px">📦 สินค้า (${orderItems(o).length})</h3>
+            ${orderItems(o).map(item => {
               const p = EP.find(x => x.id === item.pid) || { name: item.pid, icon: '📦' };
               return `<div class="ord-line">
                 <div class="th">${p.cover?`<img src="${p.cover}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='${p.icon}'">`:p.icon}</div>
-                <div class="nm">${p.name}<div class="sub">×${item.qty}${item.size?' · '+item.size:''}</div></div>
+                <div class="nm">${esc(p.name)}<div class="sub">×${item.qty}${item.size?' · '+esc(item.size):''}</div></div>
                 <div class="mono">${money((item.priceEach || 0) * item.qty)}</div>
               </div>`;
             }).join('')}
@@ -7882,14 +7965,14 @@
             <h3 style="margin:0 0 14px">🚦 อัพเดตสถานะ</h3>
             <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
               <span style="background:${st.color};color:#fff;padding:6px 14px;border-radius:99px;font-size:13px;font-weight:600">${st.icon} ${st.th}</span>
-              ${nextStatus && o.status !== 'cancelled' ? `<button class="btn btn-primary" onclick="advanceOrderAdmin('${o.po}')">▶ ${STATUS_LABEL[nextStatus].th}</button>` : ''}
-              ${o.status !== 'delivered' && o.status !== 'cancelled' ? `<button class="btn btn-ghost" onclick="cancelOrderAdmin('${o.po}')" style="color:#DC2626">✕ ยกเลิก</button>` : ''}
+              ${nextStatus && o.status !== 'cancelled' ? `<button class="btn btn-primary" onclick="advanceOrderAdmin(${jsStr(o.po)})">▶ ${esc(statusInfo(nextStatus).th)}</button>` : ''}
+              ${o.status !== 'delivered' && o.status !== 'cancelled' ? `<button class="btn btn-ghost" onclick="cancelOrderAdmin(${jsStr(o.po)})" style="color:#DC2626">✕ ยกเลิก</button>` : ''}
             </div>
             ${o.tracking ? `<div style="padding:12px 14px;background:#7C3AED15;border:1px dashed #7C3AED;border-radius:8px">
               <div style="font-size:11px;color:var(--text-muted)">🚚 หมายเลขติดตาม</div>
-              <div class="mono" style="font-size:15px;font-weight:700;color:#7C3AED">${o.tracking}</div>
+              <div class="mono" style="font-size:15px;font-weight:700;color:#7C3AED">${esc(o.tracking)}</div>
               <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${o.carrierName || ''}</div>
-            </div>` : (o.status === 'preparing' || o.status === 'paid') ? `<button class="btn btn-outline" onclick="addTrackingPrompt('${o.po}')">📦 ใส่หมายเลขติดตาม</button>` : ''}
+            </div>` : (o.status === 'preparing' || o.status === 'paid') ? `<button class="btn btn-outline" onclick="addTrackingPrompt(${jsStr(o.po)})">📦 ใส่หมายเลขติดตาม</button>` : ''}
           </div>
 
           ${o.slip ? `
@@ -7922,8 +8005,8 @@
             })()}
             ${o.slipStatus!=='verified' ? `
               <div style="display:flex;gap:10px;margin-top:12px">
-                <button class="btn btn-primary" style="flex:1" onclick="verifySlip('${o.po}',true)">✅ ยืนยันสลิป → paid</button>
-                <button class="btn btn-ghost" onclick="verifySlip('${o.po}',false)" style="color:#DC2626">✕ ปฏิเสธ</button>
+                <button class="btn btn-primary" style="flex:1" onclick="verifySlip(${jsStr(o.po)},true)">✅ ยืนยันสลิป → paid</button>
+                <button class="btn btn-ghost" onclick="verifySlip(${jsStr(o.po)},false)" style="color:#DC2626">✕ ปฏิเสธ</button>
               </div>
             ` : `
               <div style="margin-top:8px;padding:8px 12px;background:var(--success-soft);border-radius:6px;font-size:12px;color:var(--success)">
@@ -7935,9 +8018,9 @@
           <div class="co-card" style="margin:0">
             <h3 style="margin:0 0 12px">👤 ลูกค้า</h3>
             <table class="pd-specs" style="font-size:13px">
-              <tr><td>ชื่อ</td><td>${(o.customer||{}).name||'-'}</td></tr>
-              <tr><td>เบอร์โทร</td><td>${(o.customer||{}).phone||'-'}</td></tr>
-              <tr><td>ที่อยู่</td><td>${(o.customer||{}).address||'-'}</td></tr>
+              <tr><td>ชื่อ</td><td>${esc((o.customer||{}).name||'-')}</td></tr>
+              <tr><td>เบอร์โทร</td><td>${esc((o.customer||{}).phone||'-')}</td></tr>
+              <tr><td>ที่อยู่</td><td>${esc((o.customer||{}).address||'-')}</td></tr>
               <tr><td>ใบกำกับภาษี</td><td>${o.taxInvoice?'✓ ต้องการ':'ไม่ต้องการ'}</td></tr>
             </table>
           </div>
@@ -8083,10 +8166,10 @@
               <input placeholder="🔍 พิมพ์ชื่อสินค้า/SKU เพื่อเพิ่มลงบิล" value="${b.productSearch}" oninput="S.bill.productSearch=this.value;render()" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface-warm);font-size:13px;color:var(--text);font-family:inherit">
               ${searchResults.length > 0 ? `
                 <div class="search-dropdown">
-                  ${searchResults.map(p => `<div class="search-result" onclick="addBillItem('${p.id}')">
+                  ${searchResults.map(p => `<div class="search-result" onclick="addBillItem(${jsStr(p.id)})">
                     <div style="display:flex;gap:10px;align-items:center">
                       <div style="width:32px;height:32px;background:var(--surface-warm);border-radius:4px;display:grid;place-items:center;font-size:18px;flex-shrink:0;overflow:hidden">${p.cover?`<img src="${p.cover}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='${p.icon}'">`:p.icon}</div>
-                      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name}</div><div style="font-size:10px;color:var(--text-muted)">SKU: ${p.id} · สต็อก ${p.stock}</div></div>
+                      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name}</div><div style="font-size:10px;color:var(--text-muted)">SKU: ${esc(p.id)} · สต็อก ${p.stock}</div></div>
                       <div style="text-align:right;font-family:JetBrains Mono,monospace;font-size:12px;flex-shrink:0"><b style="color:var(--brand)">${money(p.retail)}</b><br><span style="color:var(--wholesale);font-size:10px">ส่ง ${money(p.wholesale)}</span></div>
                     </div>
                   </div>`).join('')}
@@ -8111,7 +8194,7 @@
                     const priceEach = it.priceOverride !== undefined && it.priceOverride !== null ? it.priceOverride : (it.priceMode === 'wholesale' ? p.wholesale : p.retail);
                     return `<tr>
                       <td><div style="width:32px;height:32px;background:var(--surface-warm);border-radius:4px;display:grid;place-items:center;overflow:hidden">${p.cover?`<img src="${p.cover}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='${p.icon}'">`:p.icon}</div></td>
-                      <td><div style="font-size:12px;font-weight:600">${p.name}</div><div style="font-size:10px;color:var(--text-muted)" class="mono">${p.id}</div></td>
+                      <td><div style="font-size:12px;font-weight:600">${p.name}</div><div style="font-size:10px;color:var(--text-muted)" class="mono">${esc(p.id)}</div></td>
                       <td><input type="number" min="1" value="${it.qty}" onchange="updateBillItemQty(${i},parseInt(this.value)||1)" style="width:64px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-family:JetBrains Mono,monospace;color:var(--text);text-align:right"></td>
                       <td>
                         <div style="display:flex;gap:2px;align-items:center">
@@ -8246,6 +8329,13 @@
         go('/admin/bill/' + (existing.bl||existing.po));
         return;
       }
+    }
+    // ต้องยืนยันว่าเงินเข้าแล้วก่อนถึงเปิดบิลได้ — หน้ารายการล็อกปุ่มไว้แล้ว
+    // แต่ปุ่มในหน้าคำสั่งซื้อยังเรียกตรงมาที่นี่ได้ จึงต้องกันซ้ำตรงนี้ด้วย
+    const blocked = orderBlockReason(o);
+    if (blocked) {
+      toast(`⛔ ยังเปิดบิลไม่ได้ — ${blocked}`);
+      return;
     }
     const cust = o.customer || {};
     if (asTax && !cust.taxId) {
@@ -8383,7 +8473,7 @@
   }
 
   function billItemRows(o) {
-    return (o.items || []).map((item, i) => {
+    return orderItems(o).map((item, i) => {
       const p = EP.find(x => x.id === item.pid) || { name: item.pid };
       const each = Number(item.priceEach) || 0;
       return {
@@ -8702,7 +8792,7 @@
       </div>
       <div class="admin-stats">
         <div class="admin-stat"><div class="s-label">สินค้าทั้งหมด</div><div class="s-val">${stats.total}</div></div>
-        <div class="admin-stat"><div class="s-label">สต็อกรวม</div><div class="s-val mono">${stats.totalStock.toLocaleString()}</div></div>
+        <div class="admin-stat"><div class="s-label">สต็อกรวม</div><div class="s-val mono">${Number(stats.totalStock || 0).toLocaleString()}</div></div>
         <div class="admin-stat"><div class="s-label">สต็อกต่ำ (&lt;50)</div><div class="s-val" style="color:${stats.lowStock>0?'var(--brand)':'var(--success)'}">${stats.lowStock}</div></div>
         <div class="admin-stat"><div class="s-label">สินค้าใหม่ที่เพิ่ม</div><div class="s-val" style="color:var(--wholesale)">${stats.new}</div></div>
       </div>
@@ -8738,17 +8828,17 @@
                   </div>
                 </td>
                 <td>
-                  <div style="font-weight:600;font-size:13px;line-height:1.3">${p.name}</div>
-                  <div style="font-size:10px;color:var(--text-muted);margin-top:2px" class="mono">${p.id}${isNew?' <span style="background:var(--wholesale-soft);color:var(--wholesale);padding:1px 5px;border-radius:3px;font-weight:700">NEW</span>':''}${isEdited?' <span style="background:var(--brand-soft);color:var(--brand);padding:1px 5px;border-radius:3px;font-weight:700">EDITED</span>':''}</div>
+                  <div style="font-weight:600;font-size:13px;line-height:1.3">${esc(p.name)}</div>
+                  <div style="font-size:10px;color:var(--text-muted);margin-top:2px" class="mono">${esc(p.id)}${isNew?' <span style="background:var(--wholesale-soft);color:var(--wholesale);padding:1px 5px;border-radius:3px;font-weight:700">NEW</span>':''}${isEdited?' <span style="background:var(--brand-soft);color:var(--brand);padding:1px 5px;border-radius:3px;font-weight:700">EDITED</span>':''}</div>
                 </td>
-                <td style="font-size:12px">${CATS.find(c=>c.id===p.cat)?.name || p.cat}</td>
+                <td style="font-size:12px">${esc(CATS.find(c=>c.id===p.cat)?.name || p.cat)}</td>
                 <td style="text-align:right" class="mono">${money(p.retail)}</td>
                 <td style="text-align:right;color:var(--wholesale)" class="mono">${money(p.wholesale)}</td>
                 <td style="text-align:right" class="mono">${p.moq}</td>
                 <td style="text-align:right" class="mono ${(p.stock||0)<50?'lowstock':''}">${(p.stock||0).toLocaleString()}</td>
                 <td>
-                  <button class="admin-btn" onclick="go('/admin/edit/${p.id}')" title="แก้ไข">✏️</button>
-                  <button class="admin-btn admin-btn-danger" onclick="adminDelete('${p.id}')" title="ลบ">🗑️</button>
+                  <button class="admin-btn" onclick="go('/admin/edit/'+${jsStr(p.id)})" title="แก้ไข">✏️</button>
+                  <button class="admin-btn admin-btn-danger" onclick="adminDelete(${jsStr(p.id)})" title="ลบ">🗑️</button>
                 </td>
               </tr>`;
             }).join('') || `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted)">ไม่พบสินค้า</td></tr>`}
@@ -8927,7 +9017,7 @@
         <div class="admin-form-section">
           <h3>ข้อมูลพื้นฐาน</h3>
           <div class="form-grid">
-            <div class="form-field ${isNew?'':'wide'}"><label>รหัสสินค้า (SKU) ${isNew?'*':''}</label>${isNew?`<input id="ae-id" placeholder="เช่น NEW-BOX-001">`:`<input value="${p.id}" disabled class="mono">`}</div>
+            <div class="form-field ${isNew?'':'wide'}"><label>รหัสสินค้า (SKU) ${isNew?'*':''}</label>${isNew?`<input id="ae-id" placeholder="เช่น NEW-BOX-001">`:`<input value="${esc(p.id)}" disabled class="mono">`}</div>
             ${isNew?`<div class="form-field"><label>Emoji ไอคอน (fallback)</label><input id="ae-icon" value="${p.icon}" placeholder="🍱"></div>`:''}
             <div class="form-field wide"><label>ชื่อสินค้า *</label><input id="ae-name" value="${p.name.replace(/"/g,'&quot;')}" placeholder="ชื่อสินค้า"></div>
             <div class="form-field"><label>หมวดหมู่ *</label>
@@ -8988,7 +9078,7 @@
 
         <div class="admin-form-actions">
           <button class="btn btn-ghost" onclick="go('/admin/products')">ยกเลิก</button>
-          <button class="btn btn-primary btn-big" onclick="adminSave('${p.id}', ${isNew})">${isNew?'➕ เพิ่มสินค้า':'💾 บันทึกการแก้ไข'}</button>
+          <button class="btn btn-primary btn-big" onclick="adminSave(${jsStr(p.id)}, ${isNew})">${isNew?'➕ เพิ่มสินค้า':'💾 บันทึกการแก้ไข'}</button>
         </div>
       </div>
     `;
@@ -9081,8 +9171,9 @@
     const sheet = S.sheetOrders || [];
     // Merge — sheet เป็นแหล่งหลัก, localStorage เติมถ้าไม่มีใน sheet
     const byPo = new Map();
-    sheet.forEach(o => byPo.set(o.po, o));
-    local.forEach(o => { if (!byPo.has(o.po)) byPo.set(o.po, o); });
+    const ok = o => o && typeof o === 'object' && o.po;
+    sheet.filter(ok).forEach(o => byPo.set(o.po, o));
+    local.filter(ok).forEach(o => { if (!byPo.has(o.po)) byPo.set(o.po, o); });
     let all = Array.from(byPo.values());
     // เรียงจากใหม่สุดก่อน
     all.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
@@ -9125,20 +9216,20 @@
       <div style="display:flex;flex-direction:column;gap:12px">
         ${myOrders.map(o => {
           const st = STATUS_LABEL[o.status] || { color:'#666', icon:'❓', th:o.status };
-          const firstItem = EP.find(x => x.id === (o.items[0]||{}).pid) || { icon: '📦' };
-          return `<div class="co-card" style="margin:0;cursor:pointer" onclick="go('/order/${o.po}')">
+          const firstItem = EP.find(x => x.id === (orderItems(o)[0]||{}).pid) || { icon: '📦' };
+          return `<div class="co-card" style="margin:0;cursor:pointer" onclick="go('/order/'+${jsStr(o.po)})">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
               <div style="display:flex;gap:14px;align-items:center;flex:1;min-width:200px">
                 <div style="width:52px;height:52px;background:var(--surface-warm);border-radius:8px;display:grid;place-items:center;font-size:28px;flex-shrink:0;overflow:hidden">${firstItem.cover?`<img src="${firstItem.cover}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentNode.textContent='${firstItem.icon}'">`:firstItem.icon}</div>
                 <div>
-                  <div class="mono" style="font-size:13px;font-weight:700;color:var(--brand)">${o.po}</div>
+                  <div class="mono" style="font-size:13px;font-weight:700;color:var(--brand)">${esc(o.po)}</div>
                   <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${new Date(o.createdAt).toLocaleString('th-TH')}</div>
-                  <div style="font-size:12px;margin-top:4px">${o.items.length} รายการ · <b>${money(o.total)}</b></div>
+                  <div style="font-size:12px;margin-top:4px">${orderItems(o).length} รายการ · <b>${money(o.total)}</b></div>
                 </div>
               </div>
               <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
                 <span style="background:${st.color};color:#fff;padding:5px 12px;border-radius:99px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px;white-space:nowrap">${st.icon} ${st.th}</span>
-                ${o.tracking ? `<div class="mono" style="font-size:10px;color:var(--text-muted)">📦 ${o.tracking}</div>` : ''}
+                ${o.tracking ? `<div class="mono" style="font-size:10px;color:var(--text-muted)">📦 ${esc(o.tracking)}</div>` : ''}
               </div>
             </div>
           </div>`;
@@ -9155,10 +9246,10 @@
     const all = [...(S.sheetOrders || []), ...S.orders];
     const o = all.find(x => x.po === po);
     if (!o) {
-      return `<div class="cart-empty"><div class="icon">🔍</div><div style="font-size:16px;color:var(--text)">ไม่พบคำสั่งซื้อ ${po}</div><button class="btn btn-primary" style="margin-top:16px" onclick="go('/')">← กลับหน้าแรก</button></div>`;
+      return `<div class="cart-empty"><div class="icon">🔍</div><div style="font-size:16px;color:var(--text)">ไม่พบคำสั่งซื้อ ${esc(po)}</div><button class="btn btn-primary" style="margin-top:16px" onclick="go('/')">← กลับหน้าแรก</button></div>`;
     }
     const paymentLabel = ({ qr: "QR PromptPay", bank: "โอนธนาคาร", cod: "เก็บเงินปลายทาง (COD)", card: "บัตรเครดิต", cash: "💵 เงินสด", credit: "📝 เครดิต (ค้างชำระ)" }[o.payment]) || o.payment || '-';
-    const st = STATUS_LABEL[o.status];
+    const st = statusInfo(o.status);
     const stIdx = statusIndex(o.status);
     const nextStatus = STATUS_FLOW[stIdx + 1];
     return `
@@ -9170,29 +9261,29 @@
         <div class="line on"></div>
         <div class="progress-step on"><span class="n">3</span><span>เสร็จสิ้น</span></div>
       </div>` : `
-      <div class="pd-crumb"><span onclick="go('/orders')">คำสั่งซื้อของฉัน</span> › <span class="brand">${o.po}</span></div>
+      <div class="pd-crumb"><span onclick="go('/orders')">คำสั่งซื้อของฉัน</span> › <span class="brand">${esc(o.po)}</span></div>
       `}
 
       <div class="ok-hero">
         <div style="width:80px;height:80px;border-radius:999px;background:${st.color};color:#fff;display:grid;place-items:center;font-size:42px;margin:0 auto 16px;box-shadow:0 8px 20px rgba(0,0,0,.15)">${st.icon}</div>
         <h1 style="color:${st.color}">${st.th}</h1>
         <div class="sub">${st.desc || 'คำสั่งซื้อ ' + o.po}</div>
-        <div class="ok-po" style="background:${st.color === 'var(--success)' ? 'var(--success-soft)' : st.color+'20'};color:${st.color}">${o.po}</div>
+        <div class="ok-po" style="background:${st.color === 'var(--success)' ? 'var(--success-soft)' : st.color+'20'};color:${st.color}">${esc(o.po)}</div>
         ${o.tracking ? `<div style="margin-top:14px;padding:12px 16px;background:#7C3AED15;border:1px dashed #7C3AED;border-radius:8px;display:inline-block">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">🚚 หมายเลขติดตามพัสดุ (${o.carrierName})</div>
-          <div class="mono" style="font-size:16px;font-weight:700;color:#7C3AED">${o.tracking}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">🚚 หมายเลขติดตามพัสดุ (${esc(o.carrierName)})</div>
+          <div class="mono" style="font-size:16px;font-weight:700;color:#7C3AED">${esc(o.tracking)}</div>
         </div>` : ''}
         ${o.slip ? `<div style="margin-top:14px;padding:12px 16px;background:${o.slipStatus==='verified'?'var(--success-soft)':'#F9F5E5'};border:1px dashed ${o.slipStatus==='verified'?'var(--success)':'var(--gold)'};border-radius:8px;display:inline-block;text-align:left;max-width:300px">
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">📸 สลิปที่แจ้งโอน ${o.slipStatus==='verified'?'· ✓ ยืนยันแล้ว':'· ⏳ รอตรวจสอบ'}</div>
           ${o.slip.image?`<img src="${o.slip.image}" style="max-width:100%;max-height:160px;border-radius:4px;cursor:pointer" onclick="window.open('${o.slip.image}','_blank')">`:''}
-          <div style="font-size:11px;margin-top:6px">${o.slip.date} ${o.slip.time} · ${o.slip.bank||''} · ${money(o.slip.amount)}</div>
+          <div style="font-size:11px;margin-top:6px">${esc(o.slip.date)} ${esc(o.slip.time)} · ${esc(o.slip.bank||'')} · ${money(o.slip.amount)}</div>
         </div>` : ''}
         ${isAdmin() && nextStatus && o.status !== 'cancelled' ? `
           <div style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--border)">
             <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">🔧 <b>Admin:</b> เปลี่ยนสถานะ</div>
-            <button class="btn btn-primary" onclick="advanceOrder('${o.po}')">▶ อัพเดต: ${STATUS_LABEL[nextStatus].th}</button>
-            ${o.status !== 'delivered' && o.status !== 'shipping' ? `<button class="btn btn-ghost" style="margin-left:8px" onclick="cancelOrder('${o.po}')">ยกเลิกคำสั่งซื้อ</button>` : ''}
-            <button class="btn btn-outline" style="margin-left:8px" onclick="go('/admin/order/${o.po}')">🔧 จัดการแบบเต็ม</button>
+            <button class="btn btn-primary" onclick="advanceOrder(${jsStr(o.po)})">▶ อัพเดต: ${esc(statusInfo(nextStatus).th)}</button>
+            ${o.status !== 'delivered' && o.status !== 'shipping' ? `<button class="btn btn-ghost" style="margin-left:8px" onclick="cancelOrder(${jsStr(o.po)})">ยกเลิกคำสั่งซื้อ</button>` : ''}
+            <button class="btn btn-outline" style="margin-left:8px" onclick="go('/admin/order/'+${jsStr(o.po)})">🔧 จัดการแบบเต็ม</button>
           </div>
         ` : ''}
       </div>
@@ -9201,14 +9292,14 @@
         ${o.status === 'pending_payment' && (o.payment === 'qr' || o.payment === 'bank') ? `
         <div class="qr-card">
           <h3>${o.payment === 'qr' ? '📱 สแกน QR เพื่อจ่าย' : '🏦 โอนเงินเข้าบัญชี'}</h3>
-          <div class="sub">ยอดที่ต้องชำระ · ${S.shopName||'THE FOOD BOX ASIA'}</div>
+          <div class="sub">ยอดที่ต้องชำระ · ${esc(S.shopName||'THE FOOD BOX ASIA')}</div>
           <div class="qr-amount" style="margin:8px 0 4px">${money(o.total)}</div>
           <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px;margin-bottom:12px" onclick="copyText('${o.total}','ยอด')">📋 คัดลอกยอด</button>
 
           ${renderPaymentQr(o.total)}
           ${renderBankAccounts()}
 
-          <button class="btn btn-primary btn-block btn-big" style="margin-top:16px" onclick="go('/upload-slip/${o.po}')">📸 แจ้งโอนแล้ว (แนบสลิป) →</button>
+          <button class="btn btn-primary btn-block btn-big" style="margin-top:16px" onclick="go('/upload-slip/'+${jsStr(o.po)})">📸 แจ้งโอนแล้ว (แนบสลิป) →</button>
         </div>
         ` : o.status === 'pending_payment' ? `
         <div class="qr-card" style="border-style:solid;border-color:var(--border)">
@@ -9222,13 +9313,13 @@
           <div class="sub" style="margin-bottom:14px">${paymentLabel} · ${money(o.total)}</div>
           <div style="text-align:left;font-size:12px;color:var(--text-muted);padding:12px;background:var(--surface);border-radius:6px">
             <div style="margin-bottom:8px"><b style="color:var(--text)">📍 จัดส่งไปที่</b></div>
-            <div style="line-height:1.6">${(o.customer||{}).name||'-'} · ${(o.customer||{}).phone||'-'}<br>${(o.customer||{}).address||'-'}</div>
+            <div style="line-height:1.6">${esc((o.customer||{}).name||'-')} · ${esc((o.customer||{}).phone||'-')}<br>${esc((o.customer||{}).address||'-')}</div>
           </div>
           ${o.status === 'delivered' ? `<div style="margin-top:12px;text-align:center">
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">รู้สึกยังไงบ้าง? รีวิวได้เลย</div>
-            ${(o.items||[]).map(it => {
+            ${orderItems(o).map(it => {
               const p = EP.find(x=>x.id===it.pid); if (!p) return '';
-              return `<button class="btn btn-outline" style="margin:2px;font-size:11px" onclick="submitReview('${it.pid}','${o.po}')">⭐ รีวิว ${(p.name||'').slice(0,20)}</button>`;
+              return `<button class="btn btn-outline" style="margin:2px;font-size:11px" onclick="submitReview(${jsStr(it.pid)},${jsStr(o.po)})">⭐ รีวิว ${esc((p.name||'').slice(0,20))}</button>`;
             }).join('')}
           </div>` : ''}
         </div>
@@ -9241,7 +9332,7 @@
               <div class="timeline-item"><span class="timeline-dot done">✓</span><div><div class="tt">ได้รับคำสั่งซื้อแล้ว</div><div class="ts">${new Date(o.createdAt).toLocaleString('th-TH')}</div></div></div>
               <div class="timeline-item"><span class="timeline-dot" style="background:#DC2626;color:#fff">✕</span><div><div class="tt" style="color:#DC2626">ยกเลิกคำสั่งซื้อ</div><div class="ts">${new Date(o.updatedAt).toLocaleString('th-TH')}</div></div></div>
             ` : STATUS_FLOW.map((s, i) => {
-              const info = STATUS_LABEL[s];
+              const info = statusInfo(s);
               const isDone = i < stIdx;
               const isCurrent = i === stIdx;
               const isPending = i > stIdx;
@@ -9253,9 +9344,9 @@
               return `<div class="timeline-item ${cls}">
                 <span class="timeline-dot ${isDone ? 'done' : isCurrent ? 'current' : ''}">${dotContent}</span>
                 <div>
-                  <div class="tt" style="${isCurrent?'color:'+info.color:''}">${info.icon} ${info.th}${s==='shipping'&&o.carrierName?' · '+o.carrierName:''}</div>
+                  <div class="tt" style="${isCurrent?'color:'+info.color:''}">${info.icon} ${info.th}${s==='shipping'&&o.carrierName?' · '+esc(o.carrierName):''}</div>
                   ${ts ? `<div class="ts">${ts}</div>` : (isPending && info.desc ? `<div class="ts">${info.desc}</div>` : '')}
-                  ${s==='shipping'&&o.tracking&&(isDone||isCurrent)?`<div class="ts mono" style="color:#7C3AED;font-weight:600;margin-top:2px">📦 ${o.tracking}</div>`:''}
+                  ${s==='shipping'&&o.tracking&&(isDone||isCurrent)?`<div class="ts mono" style="color:#7C3AED;font-weight:600;margin-top:2px">📦 ${esc(o.tracking)}</div>`:''}
                 </div>
               </div>`;
             }).join("")}
@@ -9263,17 +9354,17 @@
 
           <div class="co-card" style="margin:0">
             <h3 style="margin-bottom:8px">📄 เอกสาร</h3>
-            <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px"><span>📋 ใบสั่งซื้อ</span><span style="color:var(--brand);cursor:pointer;font-weight:700" onclick="go('/doc/${o.po}')">ดาวน์โหลด PDF →</span></div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px"><span>📋 ใบสั่งซื้อ</span><span style="color:var(--brand);cursor:pointer;font-weight:700" onclick="go('/doc/'+${jsStr(o.po)})">ดาวน์โหลด PDF →</span></div>
             <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-top:1px dashed var(--border)"><span>🧾 ใบกำกับภาษี</span><span style="color:var(--text-muted);font-size:11px">${o.taxInvoice ? 'รอชำระเงินก่อน' : 'ไม่ได้ขอ'}</span></div>
             <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-top:1px dashed var(--border)"><span>🚚 ใบส่งสินค้า</span><span style="color:var(--text-muted);font-size:11px">รอจัดส่ง</span></div>
           </div>
 
           <div class="co-card" style="margin:0">
-            <h3 style="margin-bottom:8px">รายการสินค้า (${o.items.length})</h3>
-            ${o.items.map(item => {
+            <h3 style="margin-bottom:8px">รายการสินค้า (${orderItems(o).length})</h3>
+            ${orderItems(o).map(item => {
               const p = EP.find(x => x.id === item.pid) || { icon: '📦', name: item.pid };
               const each = item.priceEach !== undefined ? item.priceEach : priceOf(p, item.qty);
-              return `<div class="ord-line"><div class="th">${p.icon}</div><div class="nm">${p.name}<div class="sub">×${item.qty}${item.size?' · '+item.size:''}</div></div><div class="mono">${money(each * item.qty)}</div></div>`;
+              return `<div class="ord-line"><div class="th">${esc(p.icon)}</div><div class="nm">${esc(p.name)}<div class="sub">×${item.qty}${item.size?' · '+esc(item.size):''}</div></div><div class="mono">${money(each * item.qty)}</div></div>`;
             }).join("")}
             <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
               <div class="summ-row"><span>ยอดรวม</span><span class="mono">${money(o.subtotal)}</span></div>
