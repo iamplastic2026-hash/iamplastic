@@ -3518,10 +3518,7 @@
 
   function viewCart() {
     // คูปองไม่ดึงตอนเปิดเว็บแล้ว — ดึงตรงนี้ที่เดียว (เบากว่า และเป็นจุดที่ต้องใช้จริง)
-    if (S.sheetApiUrl && S.cart.length && (Date.now()-(S.couponsLastSync||0))>60000) {
-      S.couponsLastSync = Date.now();
-      pullCouponsFromSheet().then(()=>render()).catch(()=>{});
-    }
+    if (S.cart.length) pullThrottled('coupons', 60000, pullCouponsFromSheet);
     if (S.cart.length === 0) {
       return `
         <div class="section-head"><h2>ตะกร้าสินค้า</h2></div>
@@ -3975,7 +3972,7 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 80;
+  const APP_VERSION = 81;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
   const NEED_BACKEND = 52;
@@ -5213,10 +5210,7 @@
   }
 
   function viewAdminDashboard() {
-    // Auto-pull orders from Sheet ทุกครั้งที่เข้า admin dashboard (ล่าสุด)
-    if (S.sheetApiUrl) {
-      pullOrdersFromSheet().then(() => render()).catch(()=>{});
-    }
+    pullThrottled('orders', 15000, () => pullOrdersFromSheet(true));
     // Combine local orders + sheet orders (dedupe by po)
     const byPo = new Map();
     (S.sheetOrders || []).forEach(o => byPo.set(o.po, o));
@@ -5322,18 +5316,39 @@
     `;
   }
 
-  async function pullOrdersFromSheet() {
-    if (!S.sheetApiUrl) { toast("ยังไม่เชื่อม Sheet"); return false; }
+  // ====================================================================
+  // ดึงข้อมูลอัตโนมัติตอนเปิดหน้า — ต้องมีตัวคุม ไม่งั้นวนไม่รู้จบ
+  //
+  // บั๊กเดิม: หน้า dashboard/คำสั่งซื้อ เรียก pull ทุกครั้งที่ render
+  // แล้ว pull เสร็จก็สั่ง render อีก → ยิง Apps Script รัวไม่หยุด
+  // Apps Script ทำงานทีละคำขอต่อผู้ใช้ ทุกอย่างเลยไปกองรอคิวจนเว็บอืด
+  // ====================================================================
+  const _pullInFlight = {};
+  function pullThrottled(key, ms, fn) {
+    if (!centralApiUrl()) return;
+    if (_pullInFlight[key]) return;                       // กำลังดึงอยู่ อย่าซ้อน
+    if (!S._pullAt) S._pullAt = {};
+    if (Date.now() - (S._pullAt[key] || 0) < ms) return;  // เพิ่งดึงไป
+    S._pullAt[key] = Date.now();
+    _pullInFlight[key] = true;
+    Promise.resolve()
+      .then(fn)
+      .catch(() => {})
+      .then(() => { _pullInFlight[key] = false; render(); });
+  }
+
+  async function pullOrdersFromSheet(silent) {
+    if (!centralApiUrl()) { if (!silent) toast("ยังไม่เชื่อม Sheet"); return false; }
     try {
       const res = await apiCall("orders");
       if (!res.ok) throw new Error(res.error);
       S.sheetOrders = res.orders || [];
       saveSynced('sheetOrders');
       saveState();
-      toast(`↓ โหลด ${S.sheetOrders.length} คำสั่งซื้อจาก Sheet ✓`);
+      if (!silent) toast(`↓ โหลด ${S.sheetOrders.length} คำสั่งซื้อจาก Sheet ✓`);
       return true;
     } catch (e) {
-      toast("❌ โหลดไม่ได้: " + e.message);
+      if (!silent) toast("❌ โหลดไม่ได้: " + e.message);
       return false;
     }
   }
@@ -5385,10 +5400,7 @@
   }
 
   function viewAdminOrders() {
-    // Auto-pull ล่าสุด
-    if (S.sheetApiUrl && (Date.now() - (S.sheetLastSync||0)) > 10000) {
-      pullOrdersFromSheet().then(() => render()).catch(()=>{});
-    }
+    pullThrottled('orders', 15000, () => pullOrdersFromSheet(true));
     // Combine local + sheet (dedupe)
     const byPo = new Map();
     (S.sheetOrders || []).forEach(o => byPo.set(o.po, o));
@@ -7742,9 +7754,7 @@
   }
 
   function viewAdminCustomers() {
-    if (S.sheetApiUrl && (Date.now() - (S.sheetCustLastSync||0)) > 10000) {
-      pullCustomersFromSheet().then(() => { S.sheetCustLastSync = Date.now(); render(); }).catch(()=>{});
-    }
+    pullThrottled('customers', 15000, pullCustomersFromSheet);
     const q = (S.custSearch || '').toLowerCase();
     const source = S.sheetCustomers || S.registeredUsers || [];
     const list = source.filter(u => {
@@ -8285,22 +8295,30 @@
     toast(`+ ${p.name.slice(0, 25)}...`);
     render();
   }
+  function billItemAt(idx) {
+    const it = (S.bill && S.bill.items) ? S.bill.items[idx] : null;
+    return it || null;   // หน้าจออาจค้างอยู่รุ่นเก่าหลัง sync — อย่าให้ปุ่มเดียวทำทั้งหน้าพัง
+  }
   function removeBillItem(idx) {
+    if (!billItemAt(idx)) return;
     S.bill.items.splice(idx, 1);
     render();
   }
   function updateBillItemQty(idx, qty) {
-    S.bill.items[idx].qty = Math.max(1, qty);
+    const it = billItemAt(idx); if (!it) return;
+    it.qty = Math.max(1, Number(qty) || 1);
     render();
   }
   function setBillItemPriceMode(idx, mode) {
-    S.bill.items[idx].priceMode = mode;
-    if (mode !== 'custom') S.bill.items[idx].priceOverride = null;
+    const it = billItemAt(idx); if (!it) return;
+    it.priceMode = mode;
+    if (mode !== 'custom') it.priceOverride = null;
     render();
   }
   function setBillItemPrice(idx, price) {
-    S.bill.items[idx].priceOverride = price;
-    S.bill.items[idx].priceMode = 'custom';
+    const it = billItemAt(idx); if (!it) return;
+    it.priceOverride = Number(price) || 0;
+    it.priceMode = 'custom';
     render();
   }
   function selectCustomer(key) {
@@ -8382,13 +8400,21 @@
     if (!b.customer.name) { toast("กรุณาใส่ชื่อลูกค้า"); return; }
     if (b.items.length === 0) { toast("กรุณาเพิ่มสินค้าอย่างน้อย 1 รายการ"); return; }
 
+    // สินค้าอาจถูกลบ/เปลี่ยนรหัสระหว่างที่กำลังเปิดบิลอยู่ (Sheet sync เข้ามา)
+    // เดิมจะพังทั้งฟังก์ชันแล้วบิลหายไปเฉยๆ — ตอนนี้บอกให้แก้ก่อน
+    const gone = b.items.filter(it => !EP.find(x => x.id === it.pid));
+    if (gone.length) {
+      toast(`⛔ มี ${gone.length} รายการที่ไม่มีในร้านแล้ว — ลบออกหรือเลือกใหม่ก่อนออกบิล`);
+      return;
+    }
     // Compute
     const items = b.items.map(it => {
-      const p = EP.find(x => x.id === it.pid);
-      const priceEach = it.priceOverride !== undefined && it.priceOverride !== null
-        ? it.priceOverride
-        : (it.priceMode === 'wholesale' ? p.wholesale : p.retail);
-      return { pid: it.pid, qty: it.qty, priceEach, size: '' };
+      const p = EP.find(x => x.id === it.pid) || {};
+      const override = Number(it.priceOverride);
+      const priceEach = (it.priceOverride !== undefined && it.priceOverride !== null && Number.isFinite(override))
+        ? override
+        : Number(it.priceMode === 'wholesale' ? p.wholesale : p.retail) || 0;
+      return { pid: it.pid, qty: Math.max(1, Number(it.qty) || 1), priceEach, size: '' };
     });
     const subtotal = items.reduce((s, i) => s + i.priceEach * i.qty, 0);
     const discount = Number(b.discount) || 0;
@@ -8448,6 +8474,9 @@
     // Navigate to bill
     go('/admin/bill/' + bl);
   }
+
+  // เลขบิลที่เพิ่งลองดึงจาก Sheet ไปแล้ว — กันวนดึงซ้ำไม่รู้จบ
+  let _billFetchTried = null;
 
   // ============================================================
   // ใบเสร็จ / ใบกำกับภาษี
@@ -8697,11 +8726,17 @@
     }
     if (!o) {
       const isBill = /^(RC-|TX-|BL-|ST-|W)/.test(po || '');
-      if (isBill && S.sheetApiUrl) {
-        pullBillsFromSheet().then(() => render());
+      // ดึงจาก Sheet ได้ครั้งเดียวต่อเลขบิล — ไม่งั้นบิลที่ไม่มีใน Sheet
+      // จะวนดึงซ้ำไม่รู้จบ ยิง Apps Script รัวจนโดนจำกัดโควตา
+      if (isBill && centralApiUrl() && _billFetchTried !== po) {
+        _billFetchTried = po;
+        pullBillsFromSheet().then(() => render()).catch(() => render());
         return `<div class="cart-empty"><div class="icon">⏳</div><div>กำลังโหลดบิล ${esc(po)}...</div></div>`;
       }
-      return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบ ${esc(po)}</div></div>`;
+      return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบ ${esc(po)}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:8px">ถ้าเพิ่งเปิดบิลนี้ อาจยังไม่ขึ้น Sheet — ลองกดโหลดใหม่อีกครั้ง</div>
+        <button class="btn btn-outline" style="margin-top:12px" onclick="_billFetchTried=null;render()">🔄 ลองใหม่</button>
+        <button class="btn btn-primary" style="margin-top:12px" onclick="go('/admin/bills')">← รายการบิล</button></div>`;
     }
 
     const dt = new Date(o.createdAt || Date.now());
@@ -9192,10 +9227,7 @@
   }
 
   function viewOrders() {
-    // Pull latest from Sheet in background (silent)
-    if (S.sheetApiUrl && (Date.now() - (S.sheetLastSync||0)) > 30000) {
-      pullOrdersFromSheet().then(() => render()).catch(()=>{});
-    }
+    pullThrottled('orders', 30000, () => pullOrdersFromSheet(true));
     const myOrders = getMyOrders();
     if (myOrders.length === 0) {
       return `
