@@ -1102,6 +1102,8 @@
     adminAuth: safeGet("iamplastic.adminAuth", false),
     adminUser: safeGet("iamplastic.adminUser", ""),
     adminRole: safeGet("iamplastic.adminRole", "owner"),
+    adminSession: safeGet("iamplastic.adminSession", null),
+    custSession: safeGet("iamplastic.custSession", null),
     adminName: safeGet("iamplastic.adminName", ""),
     sheetAdminUsers: safeGet("iamplastic.sheetAdminUsers", []),
     adminPassHash: safeGet("iamplastic.adminPassHash", ""),
@@ -1259,7 +1261,7 @@
   // ============================================================
   const LOCAL_KEYS = [
     "mode", "cart", "coupon", "orders", "wishlist",
-    "adminAuth", "adminUser", "adminPassHash", "adminRole", "adminName",
+    "adminAuth", "adminUser", "adminPassHash", "adminRole", "adminName", "adminSession", "custSession",
     "productOverrides", "deletedProducts", "newProducts",
     "user", "registeredUsers", "lineProfile",
     "tiktokAutoplay", "autoSync", "promosPendingPush", "regDraft",
@@ -1311,7 +1313,17 @@
     staff: ['bill'],          // ที่เหลือ = ดูได้อย่างเดียว
   };
 
-  function adminRole() { return isAdmin() ? (S.adminRole || 'owner') : null; }
+  // ระดับสิทธิ์ที่หน้าจอใช้ตัดสินว่าจะโชว์ปุ่มไหน — มาจากบัตรผ่านเป็นหลัก
+  // (ของจริงเซิร์ฟเวอร์ตรวจซ้ำอยู่แล้ว ตรงนี้แค่ทำให้หน้าจอไม่หลอกตา)
+  function adminRole() {
+    if (!isAdmin()) return null;
+    const ss = S.adminSession;
+    if (ss && ss.token && ss.role) {
+      if (ss.expiresAt && new Date(ss.expiresAt) < new Date()) return null;
+      return ss.role === 'owner' ? 'owner' : 'staff';
+    }
+    return S.adminRole || 'owner';
+  }
   function isOwner()   { return adminRole() === 'owner'; }
 
   // can('product') = แก้ไขสินค้าได้ไหม · ดูได้เสมอถ้าเป็นแอดมิน
@@ -1406,6 +1418,36 @@
     setTimeout(() => location.reload(), 600);
   }
 
+  // ===============================================================
+  // บัตรผ่าน (session) — ได้มาตอนล็อกอิน หมดอายุเองใน 12 ชม.
+  // สิทธิ์จริงตัดสินที่เซิร์ฟเวอร์ ค่าที่เก็บในเครื่องเป็นแค่ของหน้าจอ
+  // แก้ค่าในเครื่องให้เป็น owner ก็ไม่ได้สิทธิ์เพิ่ม เพราะหลังบ้านดูจากบัตร
+  // ===============================================================
+  function liveSession(ss) {
+    if (!ss || !ss.token) return null;
+    if (ss.expiresAt && new Date(ss.expiresAt) < new Date()) return null;
+    return ss;
+  }
+  function sessionToken() {
+    const ss = liveSession(S.adminSession) || liveSession(S.custSession);
+    return ss ? ss.token : '';
+  }
+
+  let _sessionLostShown = false;
+  function handleSessionLost(msg) {
+    // ลูกค้าหมดอายุบัตร แค่เลิกใช้บัตร ไม่ต้องเด้งออกจากบัญชี
+    if (!S.adminSession && !isAdmin()) { S.custSession = null; saveState(); return; }
+    S.adminSession = null;
+    S.user = null;
+    S.adminRole = 'owner';
+    S.adminName = '';
+    saveState();
+    if (_sessionLostShown) return;
+    _sessionLostShown = true;
+    toast("🔒 " + (msg || 'หมดเวลาใช้งาน — กรุณาเข้าสู่ระบบใหม่'));
+    setTimeout(() => { _sessionLostShown = false; go('/login'); }, 400);
+  }
+
   async function apiCall(action, extra = {}, isPost = false, timeoutMs = 25000) {
     const cfg = liveSheetConfig();
     if (!cfg.url) throw new Error("ยังไม่ได้ตั้งค่า Sheet API URL");
@@ -1417,7 +1459,7 @@
       if (isPost) {
         // token ต้องอยู่ "หลัง" ...extra เสมอ — ไม่งั้นถ้า extra มีคีย์ชื่อ token
         // (เช่นรหัสลิงก์ reset) จะไปทับรหัสยืนยันของระบบ แล้วโดนตีกลับว่า unauthorized
-        const body = JSON.stringify({ action, ...extra, token: cfg.token });
+        const body = JSON.stringify({ action, ...extra, token: cfg.token, session: sessionToken() });
         r = await fetch(cfg.url, {
           method: "POST",
           redirect: "follow",
@@ -1430,12 +1472,19 @@
         const u = new URL(cfg.url);
         u.searchParams.set("action", action);
         Object.entries(extra).forEach(([k, v]) => u.searchParams.set(k, v));
+        const st = sessionToken();
+        if (st) u.searchParams.set("s", st);   // บัตรผ่านสำหรับคำสั่งที่ไม่ใช่ข้อมูลสาธารณะ
         r = await fetch(u.toString(), { redirect: "follow", mode: "cors", signal: ctrl.signal });
       }
       rawText = await r.text();
       console.log(`[apiCall ${action}] status=${r.status} body:`, rawText.substring(0, 200));
       try {
-        return JSON.parse(rawText);
+        const parsed = JSON.parse(rawText);
+        // บัตรผ่านหมดอายุ / ถูกถอน → เด้งออกทันที ไม่ปล่อยให้หน้าจอหลอกว่ายังมีสิทธิ์
+        if (parsed && parsed.ok === false && (parsed.code === 'session_expired' || parsed.code === 'need_login')) {
+          handleSessionLost(parsed.error);
+        }
+        return parsed;
       } catch (parseErr) {
         return { ok: false, error: `Response not JSON (status ${r.status}): ${rawText.substring(0, 100)}` };
       }
@@ -3982,10 +4031,10 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 82;
+  const APP_VERSION = 85;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
-  const NEED_BACKEND = 53;
+  const NEED_BACKEND = 56;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -4093,39 +4142,38 @@
     if (!contact) { toast("กรุณาใส่เบอร์หรืออีเมล"); return; }
     if (!pw) { toast("กรุณาใส่รหัสผ่าน"); return; }
 
-    // 1) ถามจาก Sheet ก่อน — เข้าได้จากทุกเครื่อง
-    if (S.sheetApiUrl) {
+    // ตรวจรหัสที่เซิร์ฟเวอร์ — หน้าเว็บขอแค่ salt มาคำนวณแฮช ไม่เคยได้แฮชที่เก็บไว้
+    // (ของเดิมเซิร์ฟเวอร์ส่ง pass_hash + salt กลับมาให้ใครก็ได้ที่รู้อีเมล)
+    if (centralApiUrl()) {
       toast("⏳ กำลังตรวจสอบ...");
       try {
-        const res = await apiCall("customerAuth", { login: contact }, true);
-        const acc = res && res.ok && res.auth;
-        if (acc && acc.found) {
-          if (!acc.passHash) {
-            // บัญชีเก่าที่ยังไม่มีรหัสบน Sheet — กู้ให้เลยถ้ารหัสเดิมในเครื่องนี้ตรง
-            const local = S.registeredUsers.find(u => u.email === acc.email || u.phone === acc.phone);
-            if (local && local.password === btoa(pw)) {
-              const salt = newSalt();
-              const hash = await hashPassword(pw, salt);
-              await apiCall("setCustomerPassword", { login: contact, passHash: hash, passSalt: salt }, true);
-              finishCustomerLogin(acc, local);
-              return;
-            }
+        const saltRes = await apiCall("customerLoginSalt", { login: contact }, true);
+        if (saltRes && saltRes.ok) {
+          if (saltRes.known && saltRes.noPassword) {
             toast("บัญชีนี้ยังไม่ได้ตั้งรหัสผ่านในระบบใหม่");
             setTimeout(() => toast("👉 กด \"ลืมรหัสผ่าน\" เพื่อตั้งรหัสใหม่ทางอีเมล"), 1800);
             return;
           }
-          const hash = await hashPassword(pw, acc.passSalt);
-          if (hash !== acc.passHash) { toast("รหัสผ่านไม่ถูกต้อง"); return; }
-          finishCustomerLogin(acc, null);
-          return;
+          const hash = await hashPassword(pw, saltRes.salt || '');
+          const res = await apiCall("customerLogin", { login: contact, passHash: hash }, true);
+          if (res && res.ok && res.customer) {
+            S.custSession = res.session || null;
+            finishCustomerLogin(res.customer, null);
+            return;
+          }
+          if (res && res.code === 'no_password') {
+            toast("บัญชีนี้ยังไม่ได้ตั้งรหัสผ่าน");
+            setTimeout(() => toast("👉 กด \"ลืมรหัสผ่าน\" เพื่อตั้งรหัสใหม่ทางอีเมล"), 1800);
+            return;
+          }
+          if (res && res.error) { toast("❌ " + res.error); return; }
         }
-        // ไม่มีใน Sheet → ลองดูในเครื่องต่อ (เผื่อสมัครตอนเน็ตหลุด)
       } catch (e) {
-        console.warn("[login] ถาม Sheet ไม่ได้ ใช้ข้อมูลในเครื่องแทน", e);
+        console.warn("[login] ถามระบบกลางไม่ได้ ใช้ข้อมูลในเครื่องแทน", e);
       }
     }
 
-    // 2) ข้อมูลในเครื่อง (บัญชีที่ยังไม่ได้ขึ้น Sheet)
+    // สำรอง: บัญชีที่สมัครตอนเน็ตหลุด ยังไม่ขึ้นระบบกลาง
     const existing = S.registeredUsers.find(u =>
       u.phone === contact || u.email === contact || u.companyPhone === contact
     );
@@ -4134,14 +4182,10 @@
       setTimeout(() => toast("ยังไม่มีบัญชี? กด \"สมัครสมาชิก\" ด้านล่าง"), 1600);
       return;
     }
-    if (existing.password !== btoa(pw)) { toast("รหัสผ่านไม่ถูกต้อง"); return; }
-
-    // ล็อกอินผ่านแล้ว — ถือโอกาสดันบัญชี + รหัสขึ้น Sheet ให้เลย
-    if (S.sheetApiUrl) {
-      const salt = newSalt();
-      const hash = await hashPassword(pw, salt);
-      pushCustomerToSheet({ ...existing, passHash: hash, passSalt: salt }).catch(() => {});
-    }
+    const localHash = existing.passSalt ? await hashPassword(pw, existing.passSalt) : null;
+    const okLocal = (localHash && localHash === existing.passHash) ||
+                    (!existing.passSalt && existing.password === btoa(pw));
+    if (!okLocal) { toast("รหัสผ่านไม่ถูกต้อง"); return; }
     finishCustomerLogin(null, existing);
   }
 
@@ -4952,53 +4996,40 @@
   }
 
   async function loginAsAdminAsync(u, p) {
-    const hash = await sha256(p);
-
-    // 1) บัญชีในระบบหลายผู้ใช้ (tab admin_users) — รองรับลูกน้อง
-    if (S.sheetApiUrl) {
-      try {
-        const res = await apiCall("getAdminUser", { username: u }, true);
-        const acc = res && res.ok && res.user;
-        if (acc && acc.disabled) { toast("บัญชีนี้ถูกปิดใช้งาน — ติดต่อเจ้าของร้าน"); return; }
-        if (acc && acc.passHash) {
-          if (acc.passHash !== hash) { toast("username หรือ password ไม่ถูกต้อง"); return; }
-          enterAdmin(acc.username, acc.role || 'staff', acc.displayName || acc.username);
-          return;
-        }
-      } catch (e) {
-        console.warn("[admin] อ่าน admin_users ไม่ได้ — ลองวิธีเดิม", e);
-      }
-    }
-
-    // 2) บัญชีเจ้าของเดิม (tab admin) — ยังใช้ได้เหมือนเดิม
-    let creds = null;
-    if (S.sheetApiUrl) {
-      try {
-        const res = await apiCall("getAdmin", {}, true);
-        if (res && res.ok && res.admin && res.admin.passHash) {
-          creds = res.admin;
-          S.adminUser = creds.user; S.adminPassHash = creds.passHash; saveState();
-        }
-      } catch (e) { console.warn("[admin] อ่านจาก Sheet ไม่ได้ ใช้ค่าในเครื่องแทน"); }
-    }
-    if (!creds && S.adminPassHash) creds = { user: S.adminUser, passHash: S.adminPassHash };
-
-    if (creds) {
-      if (u === creds.user && hash === creds.passHash) {
-        enterAdmin(creds.user, 'owner', 'เจ้าของร้าน');
-      } else {
-        toast("username หรือ password ไม่ถูกต้อง");
-      }
+    // ส่งไปให้เซิร์ฟเวอร์ตรวจ — หน้าเว็บไม่เคยเห็นรหัสที่เก็บไว้อีกแล้ว
+    // (ของเดิมดึงแฮชมาเทียบในเครื่อง ใครดักดูก็เอาไปถอดออฟไลน์ได้)
+    if (!centralApiUrl()) { toast("ยังเชื่อมระบบไม่ได้ — ลองใหม่อีกครั้ง"); return; }
+    toast("⏳ กำลังตรวจสอบ...");
+    let res;
+    try {
+      const salted = await sha256(p);            // บัญชีรุ่นเก่า: sha256(รหัส)
+      res = await apiCall("adminLogin", { username: u, passHash: salted }, true);
+    } catch (e) {
+      toast("❌ ต่อระบบไม่ได้: " + (e.message || e));
       return;
     }
-
-    // 3) ยังไม่เคยตั้งรหัสเอง → ค่าเริ่มต้น
-    if (u === ADMIN_USERNAME && p === ADMIN_PASSWORD) {
-      enterAdmin(u, 'owner', 'เจ้าของร้าน');
-      setTimeout(() => toast("⚠️ ยังใช้รหัสเริ่มต้น — ควรเปลี่ยนที่ จัดการแอดมิน"), 1800);
-    } else {
-      toast("username หรือ password ไม่ถูกต้อง");
+    if (res && res.ok && res.session) {
+      S.adminSession = res.session;
+      saveState();
+      enterAdmin(res.session.username, res.session.role, res.session.displayName);
+      return;
     }
+    // ยังไม่เคยตั้งบัญชีแอดมินเลย → ให้ใช้ค่าเริ่มต้นได้ครั้งแรก แล้วบังคับตั้งรหัสใหม่
+    if (res && res.code === 'no_account' && u === ADMIN_USERNAME && p === ADMIN_PASSWORD) {
+      const hash = await sha256(p);
+      const saved = await apiCall("setAdmin", { user: u, passHash: hash }, true);
+      if (saved && saved.ok) {
+        const again = await apiCall("adminLogin", { username: u, passHash: hash }, true);
+        if (again && again.ok && again.session) {
+          S.adminSession = again.session;
+          saveState();
+          enterAdmin(again.session.username, again.session.role, again.session.displayName);
+          setTimeout(() => toast("⚠️ ยังใช้รหัสเริ่มต้น — ไปเปลี่ยนที่ จัดการแอดมิน ทันที"), 1800);
+          return;
+        }
+      }
+    }
+    toast("❌ " + ((res && res.error) || 'username หรือ password ไม่ถูกต้อง'));
   }
 
   function enterAdmin(username, role, displayName) {
@@ -5014,10 +5045,14 @@
 
   function doLogout() {
     hideDropdown();
+    const tok = sessionToken();
+    if (tok) apiCall("adminLogout", { session: tok }, true).catch(() => {});   // ถอนบัตรที่เซิร์ฟเวอร์ด้วย
     S.user = null;
     S.adminAuth = false;
     S.adminRole = 'owner';
     S.adminName = '';
+    S.adminSession = null;
+    S.custSession = null;
     saveState();
     toast("ออกจากระบบแล้ว");
     go('/');
@@ -5345,6 +5380,21 @@
       .then(fn)
       .catch(() => {})
       .then(() => { _pullInFlight[key] = false; render(); });
+  }
+
+  // ลูกค้าที่ล็อกอินแล้ว — เซิร์ฟเวอร์ส่งกลับเฉพาะคำสั่งซื้อของคนนั้น
+  async function pullMyOrdersFromSheet() {
+    if (!centralApiUrl() || !liveSession(S.custSession)) return false;
+    try {
+      const res = await apiCall("myOrders");
+      if (!res || !res.ok) return false;
+      const mine = res.orders || [];
+      // รวมกับที่มีอยู่ ไม่ทับของคนอื่นที่แอดมินโหลดไว้ในเครื่องเดียวกัน
+      const keep = (S.sheetOrders || []).filter(o => !mine.some(m => m.po === o.po));
+      S.sheetOrders = [...mine, ...keep];
+      saveSynced('sheetOrders'); saveState();
+      return true;
+    } catch (e) { return false; }
   }
 
   async function pullOrdersFromSheet(silent) {
@@ -6875,7 +6925,20 @@
     S.shipRates = out;
     saveState(); saveSynced('shipRates');
     pushSettingsToSheet();
+    // พิมพ์ราคาสลับกันได้ง่าย (เช่นขั้นหนักกว่าแต่ถูกกว่า) แล้วขาดทุนเงียบๆ
+    const ZN = { bkk: 'กรุงเทพ/ปริมณฑล', ce: 'กลาง/ตะวันออก/ตะวันตก', nnes: 'เหนือ/อีสาน/ใต้' };
+    const odd = [];
+    Object.keys(ZN).forEach(z => {
+      for (let i = 1; i < out.length; i++) {
+        if (Number(out[i][z]) < Number(out[i - 1][z])) {
+          odd.push(`${ZN[z]}: ${out[i].w}g (${money(out[i][z])}) ถูกกว่า ${out[i-1].w}g (${money(out[i-1][z])})`);
+          break;
+        }
+      }
+    });
     toast("✓ บันทึกอัตราค่าส่งแล้ว");
+    if (odd.length) setTimeout(() => toast("⚠️ ราคาสวนทางน้ำหนัก — " + odd[0]), 1400);
+    S._shipWarn = odd;
     render();
   }
 
@@ -9237,7 +9300,8 @@
   }
 
   function viewOrders() {
-    pullThrottled('orders', 30000, () => pullOrdersFromSheet(true));
+    // แอดมินเห็นทั้งร้าน · ลูกค้าดึงเฉพาะของตัวเองผ่านบัตรผ่าน
+    pullThrottled('orders', 30000, () => (isAdmin() ? pullOrdersFromSheet(true) : pullMyOrdersFromSheet()));
     const myOrders = getMyOrders();
     if (myOrders.length === 0) {
       return `
