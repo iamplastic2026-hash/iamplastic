@@ -4031,10 +4031,10 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 85;
+  const APP_VERSION = 86;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
-  const NEED_BACKEND = 56;
+  const NEED_BACKEND = 57;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -5014,20 +5014,21 @@
       enterAdmin(res.session.username, res.session.role, res.session.displayName);
       return;
     }
-    // ยังไม่เคยตั้งบัญชีแอดมินเลย → ให้ใช้ค่าเริ่มต้นได้ครั้งแรก แล้วบังคับตั้งรหัสใหม่
-    if (res && res.code === 'no_account' && u === ADMIN_USERNAME && p === ADMIN_PASSWORD) {
+    // ร้านที่ยังไม่เคยตั้งบัญชีแอดมินเลย → ตั้งเจ้าของคนแรกให้ตรงนี้
+    // (ทำได้ครั้งเดียว ถ้ามีบัญชีแล้วเซิร์ฟเวอร์จะปฏิเสธ)
+    if (res && res.code === 'no_account') {
       const hash = await sha256(p);
-      const saved = await apiCall("setAdmin", { user: u, passHash: hash }, true);
-      if (saved && saved.ok) {
-        const again = await apiCall("adminLogin", { username: u, passHash: hash }, true);
-        if (again && again.ok && again.session) {
-          S.adminSession = again.session;
-          saveState();
-          enterAdmin(again.session.username, again.session.role, again.session.displayName);
+      const setup = await apiCall("setupFirstAdmin", { username: u, passHash: hash }, true);
+      if (setup && setup.ok && setup.session) {
+        S.adminSession = setup.session;
+        saveState();
+        enterAdmin(setup.session.username, setup.session.role, setup.session.displayName);
+        if (u === ADMIN_USERNAME && p === ADMIN_PASSWORD) {
           setTimeout(() => toast("⚠️ ยังใช้รหัสเริ่มต้น — ไปเปลี่ยนที่ จัดการแอดมิน ทันที"), 1800);
-          return;
         }
+        return;
       }
+      if (setup && setup.error) { toast("❌ " + setup.error); return; }
     }
     toast("❌ " + ((res && res.error) || 'username หรือ password ไม่ถูกต้อง'));
   }
