@@ -1193,7 +1193,7 @@
     coStep: 1,
     coShipping: "kerry",
     coPayment: "qr",
-    coTaxOn: true,
+    coTaxOn: false,
     coAddressId: null, // ที่อยู่ที่เลือกในหน้า checkout
   };
   function safeGet(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
@@ -1491,15 +1491,150 @@
   }
 
   // =======================================================
+  // เอกสารคำสั่งซื้อ — พิมพ์ / บันทึกเป็น PDF ได้
+  // =======================================================
+  function findOrderAnywhere(po) {
+    const all = [...(S.sheetOrders || []), ...(S.orders || [])];
+    return all.find(x => x.po === po) || null;
+  }
+
+  function viewOrderDoc(po) {
+    const o = findOrderAnywhere(po);
+    if (!o) return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบคำสั่งซื้อ ${esc(po)}</div>
+      <button class="btn btn-primary" style="margin-top:14px" onclick="go('/orders')">← คำสั่งซื้อของฉัน</button></div>`;
+    const c = o.customer || {};
+    const dt = new Date(o.createdAt || Date.now());
+    const dateStr = isNaN(dt) ? '-' : `${dt.getDate()}/${dt.getMonth() + 1}/${dt.getFullYear() + 543}`;
+    const ship = Number(o.shipping || 0);
+    const disc = Number(o.discount || 0);
+    const st = STATUS_LABEL[o.status] || { th: o.status || '-', icon: '' };
+    const rows = (o.items || []).map((item, i) => {
+      const p = EP.find(x => x.id === item.pid) || { name: item.pid };
+      const each = item.priceEach !== undefined ? Number(item.priceEach) : priceOf(p, item.qty);
+      return `<tr>
+        <td style="text-align:center">${i + 1}</td>
+        <td>${esc(String(p.name || item.pid))}${item.size ? `<div style="font-size:11px;color:#666">${esc(item.size)}</div>` : ''}</td>
+        <td style="text-align:center">${item.qty}</td>
+        <td style="text-align:right">${money(each)}</td>
+        <td style="text-align:right">${money(each * item.qty)}</td>
+      </tr>`;
+    }).join('');
+
+    return `
+      <style>
+        @media print {
+          .no-print { display: none !important; }
+          body { background: #fff; }
+          .doc-sheet { box-shadow: none; margin: 0; width: auto; padding: 0; }
+        }
+        .doc-sheet { width: 190mm; background: #fff; color: #000; padding: 14mm 12mm; margin: 14px auto;
+                     box-shadow: var(--shadow); font-family: 'Sarabun', sans-serif; max-width: 100%; }
+        .doc-sheet table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .doc-sheet thead th { background: #f2f2f2; border: 1px solid #999; padding: 6px 8px; font-size: 12px; }
+        .doc-sheet tbody td { border: 1px solid #ccc; padding: 6px 8px; vertical-align: top; }
+      </style>
+      <div class="no-print" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:12px">
+        <button class="btn btn-primary btn-big" onclick="window.print()">🖨️ พิมพ์ / บันทึกเป็น PDF</button>
+        <button class="btn btn-outline" onclick="go('/order/${esc(o.po)}')">← กลับ</button>
+      </div>
+      <div class="no-print" style="max-width:190mm;margin:0 auto 10px;font-size:11px;color:var(--text-muted);text-align:center">
+        💡 ในหน้าพิมพ์ เลือกปลายทางเป็น "บันทึกเป็น PDF" (Save as PDF) เพื่อโหลดเก็บไว้
+      </div>
+      <div class="doc-sheet">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:12px">
+          <div>
+            <div style="font-size:17px;font-weight:800">${esc(S.coName || S.shopName || 'ร้านค้า')}${S.coBranch ? ` (${esc(S.coBranch)})` : ''}</div>
+            <div style="font-size:11px;line-height:1.6;color:#333;margin-top:3px">
+              ${esc(S.coAddress || '')}<br>
+              ${S.coTaxId ? `เลขประจำตัวผู้เสียภาษี: ${esc(S.coTaxId)}` : ''}${S.coPhone ? ` · โทร ${esc(S.coPhone)}` : ''}
+            </div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:16px;font-weight:800">ใบสั่งซื้อ</div>
+            <div style="font-size:11px;color:#555">PURCHASE ORDER</div>
+            <div style="font-size:13px;font-weight:700;margin-top:6px">${esc(o.po)}</div>
+            <div style="font-size:11px;color:#555">วันที่ ${dateStr}</div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:14px;margin-bottom:12px;font-size:12px">
+          <div style="flex:1;border:1px solid #ccc;padding:8px 10px">
+            <div style="font-weight:700;margin-bottom:3px">ลูกค้า</div>
+            <div style="line-height:1.6">
+              ${esc(c.name || '-')}${c.phone ? ` · ${esc(c.phone)}` : ''}<br>
+              ${esc(c.address || '-')}
+              ${c.company ? `<br><b>${esc(c.company)}</b>` : ''}
+              ${c.taxId ? `<br>เลขผู้เสียภาษี: ${esc(c.taxId)}` : ''}
+            </div>
+          </div>
+          <div style="flex:1;border:1px solid #ccc;padding:8px 10px">
+            <div style="font-weight:700;margin-bottom:3px">การจัดส่ง</div>
+            <div style="line-height:1.6">
+              ${esc(o.carrierName || ({kerry:'Kerry Express (1-2 วัน)',flash:'Flash Express (2-3 วัน)',pickup:'รับเองที่คลัง'})[o.shippingMethod] || o.shippingMethod || '-')}<br>
+              สถานะ: ${esc(st.th)}
+              ${o.tracking ? `<br>เลขพัสดุ: ${esc(o.tracking)}` : ''}
+            </div>
+          </div>
+        </div>
+
+        <table>
+          <thead><tr>
+            <th style="width:34px">#</th><th>รายการ</th><th style="width:56px">จำนวน</th>
+            <th style="width:80px">ราคา/หน่วย</th><th style="width:90px">รวม</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#888">ไม่มีรายการ</td></tr>'}</tbody>
+        </table>
+
+        <div style="display:flex;justify-content:flex-end;margin-top:10px">
+          <table style="width:260px">
+            <tbody>
+              <tr><td>ยอดสินค้า</td><td style="text-align:right">${money(o.subtotal || 0)}</td></tr>
+              ${disc > 0 ? `<tr><td>ส่วนลด</td><td style="text-align:right">−${money(disc)}</td></tr>` : ''}
+              <tr><td>ค่าจัดส่ง</td><td style="text-align:right">${ship === 0 ? 'ฟรี' : money(ship)}</td></tr>
+              <tr><td style="font-weight:800">ยอดชำระทั้งสิ้น</td><td style="text-align:right;font-weight:800">${money(o.total || 0)}</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:18px;font-size:11px;color:#555;border-top:1px dashed #999;padding-top:8px">
+          เอกสารนี้ออกจากระบบอัตโนมัติ ไม่ต้องมีลายเซ็น · พิมพ์เมื่อ ${new Date().toLocaleString('th-TH')}
+        </div>
+      </div>
+    `;
+  }
+
+  // =======================================================
   // Slip Upload — ลูกค้าแนบสลิปโอนเงิน
   // =======================================================
+  // ลูกค้าบางคนส่งอีเมลยืนยันจากธนาคารแทนสลิป · บางคนโอนหลายครั้ง → รับได้หมด
+  const SLIP_KINDS = { slip: 'สลิปโอนเงิน', email: 'อีเมลยืนยันจากธนาคาร', other: 'หลักฐานอื่นๆ' };
+  const SLIP_MAX_IMAGES = 3;   // Sheet เก็บได้ 3 รูป/ออเดอร์
+
+  // หลักฐานทั้งหมดของออเดอร์ (รองรับข้อมูลเก่าที่มี slip เดี่ยว)
+  function slipProofs(o) {
+    if (!o) return [];
+    if (Array.isArray(o.slips) && o.slips.length) return o.slips;
+    return o.slip ? [o.slip] : [];
+  }
+
+  function slipImagesOf(o) {
+    const out = [];
+    slipProofs(o).forEach(p => {
+      const imgs = Array.isArray(p.images) && p.images.length ? p.images : (p.image ? [p.image] : []);
+      imgs.forEach(v => { if (v && out.indexOf(v) < 0) out.push(v); });
+    });
+    return out;
+  }
+
   function viewUploadSlip(po) {
     const all = [...(S.sheetOrders || []), ...S.orders];
     const o = all.find(x => x.po === po);
     if (!o) return `<div class="cart-empty"><div class="icon">🔍</div><div>ไม่พบคำสั่งซื้อ ${po}</div></div>`;
+    const already = slipImagesOf(o);
+    const room = Math.max(0, SLIP_MAX_IMAGES - already.length);
     return `
       <div class="section-head">
-        <h2>📸 แจ้งโอนเงิน / แนบสลิป</h2>
+        <h2>📸 แจ้งโอนเงิน / แนบหลักฐาน</h2>
         <button class="btn btn-ghost" onclick="go('/order/${po}')">← กลับ</button>
       </div>
       <div class="co-card" style="margin:0;max-width:640px">
@@ -1509,15 +1644,30 @@
           <div style="margin-top:6px;font-size:13px">ยอดที่ต้องชำระ: <b class="mono" style="color:var(--brand)">${money(o.total)}</b></div>
         </div>
 
+        ${already.length ? `
+          <div style="margin-bottom:14px;padding:12px 14px;background:var(--surface-warm);border-radius:8px">
+            <div style="font-size:12px;font-weight:700;margin-bottom:8px">📎 หลักฐานที่ส่งไปแล้ว (${already.length})</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              ${already.map(img => `<img src="${img}" style="width:84px;height:84px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer" onclick="window.open('${img}','_blank')">`).join('')}
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:8px">
+              ${room ? `โอนหลายครั้ง? แนบเพิ่มได้อีก ${room} รูป` : 'ครบจำนวนสูงสุดแล้ว — ถ้าต้องส่งเพิ่ม แจ้งแอดมินทางแชทได้เลย'}
+            </div>
+          </div>
+        ` : ''}
+
         <div class="form-field wide" style="margin-bottom:14px">
-          <label style="font-size:13px;font-weight:600">📸 อัพโหลดสลิป</label>
-          <input type="file" id="slip-file" accept="image/*" onchange="onSlipFileChange(event, '${po}')" style="padding:8px;font-size:13px;background:var(--surface-warm);border:1px solid var(--border);border-radius:6px;width:100%;font-family:inherit;color:var(--text)">
-          <div style="font-size:11px;color:var(--text-muted);margin-top:6px">📱 แนบรูปสลิป แล้วกด "ส่งสลิป" ได้เลย — ไม่ต้องพิมพ์อะไร<br>บนมือถือ: เลือก "ถ่ายรูป" หรือ "คลังภาพ" · รับไฟล์ JPG, PNG (ระบบจะบีบให้อัตโนมัติ)</div>
+          <label style="font-size:13px;font-weight:600">📸 แนบหลักฐานการโอน</label>
+          <input type="file" id="slip-file" accept="image/*" multiple ${room ? '' : 'disabled'} onchange="onSlipFileChange(event, '${po}')" style="padding:8px;font-size:13px;background:var(--surface-warm);border:1px solid var(--border);border-radius:6px;width:100%;font-family:inherit;color:var(--text)">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:6px">
+            📱 แนบรูปแล้วกดส่งได้เลย — ไม่ต้องพิมพ์อะไร<br>
+            รับทั้ง <b>สลิปโอนเงิน</b> และ <b>ภาพอีเมลยืนยันจากธนาคาร</b> · โอนหลายครั้งเลือกได้หลายรูปพร้อมกัน (สูงสุด ${SLIP_MAX_IMAGES} รูป)
+          </div>
         </div>
 
-        <div id="slip-preview" style="display:none;text-align:center;padding:14px;background:var(--surface-warm);border-radius:8px;margin-bottom:14px">
-          <img id="slip-preview-img" style="max-width:100%;max-height:400px;border-radius:8px;box-shadow:var(--shadow)">
-          <div id="slip-size-info" style="font-size:11px;color:var(--text-muted);margin-top:6px"></div>
+        <div id="slip-preview" style="display:none;padding:14px;background:var(--surface-warm);border-radius:8px;margin-bottom:14px">
+          <div id="slip-preview-list" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center"></div>
+          <div id="slip-size-info" style="font-size:11px;color:var(--text-muted);margin-top:8px;text-align:center"></div>
         </div>
 
         <div id="slip-auto-hint" style="display:none;font-size:12px;padding:9px 12px;border-radius:6px;background:var(--surface-warm);margin-bottom:12px"></div>
@@ -1539,44 +1689,77 @@
                 <option>KBank</option><option>SCB</option><option>Bangkok Bank</option><option>Krungthai</option><option>Krungsri</option><option>TTB</option><option>PromptPay</option><option>อื่นๆ</option>
               </select>
             </div>
-            <div class="form-field wide"><label>หมายเหตุ (ถ้ามี)</label><input id="slip-note" placeholder="เช่น: โอนจากบัญชี xxxx"></div>
+            <div class="form-field"><label>ประเภทหลักฐาน</label>
+              <select id="slip-kind" style="padding:9px 12px;border:1px solid var(--border);background:var(--surface-warm);border-radius:4px;font-size:13px;color:var(--text);font-family:inherit;width:100%">
+                ${Object.keys(SLIP_KINDS).map(k => `<option value="${k}">${SLIP_KINDS[k]}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-field wide"><label>หมายเหตุ (ถ้ามี)</label><input id="slip-note" placeholder="เช่น: โอน 2 ครั้ง 1,000 + 1,892"></div>
           </div>
         </details>
 
-        <button class="btn btn-primary btn-big" id="slip-send" onclick="submitSlip('${po}')" style="width:100%;justify-content:center;font-size:15px;padding:14px">✅ ส่งสลิป</button>
+        <button class="btn btn-primary btn-big" id="slip-send" onclick="submitSlip('${po}')" style="width:100%;justify-content:center;font-size:15px;padding:14px">✅ ส่งหลักฐาน</button>
         <div style="text-align:center;margin-top:10px">
           <button class="btn btn-ghost" onclick="go('/order/${po}')">ยกเลิก</button>
         </div>
 
         <div style="margin-top:16px;padding:12px 14px;background:var(--wholesale-soft);border-radius:6px;font-size:11px;color:var(--wholesale);line-height:1.6">
-          💡 <b>หลังจากส่งสลิปแล้ว:</b> ระบบจะแจ้งแอดมินตรวจสอบภายใน 1-2 ชม. · สถานะจะเปลี่ยนเป็น "ได้รับชำระ" ทันทีที่ยืนยัน
+          💡 <b>หลังจากส่งแล้ว:</b> ระบบจะแจ้งแอดมินตรวจสอบภายใน 1-2 ชม. · สถานะจะเปลี่ยนเป็น "ได้รับชำระ" ทันทีที่ยืนยัน<br>
+          โอนแยกหลายครั้งก็ส่งได้ — แนบครบทุกใบแล้วกดส่งครั้งเดียว หรือกลับมาแนบเพิ่มทีหลังก็ได้
         </div>
       </div>
     `;
   }
 
-  let _slipDataUrl = null;
-  let _slipAuto = null;   // ผลอ่านสลิปอัตโนมัติ (SlipOK) — ใช้ซ้ำตอนกดส่ง จะได้ไม่เสียเครดิต 2 ครั้ง
+  let _slipDataUrl = null;   // รูปแรก — ใช้กับ SlipOK
+  let _slipFiles = [];       // หลักฐานทั้งหมดที่เพิ่งแนบ (รองรับโอนหลายครั้ง)
+  let _slipAuto = null;      // ผลอ่านสลิปอัตโนมัติ (SlipOK) — ใช้ซ้ำตอนกดส่ง จะได้ไม่เสียเครดิต 2 ครั้ง
+
+  function renderSlipPreview() {
+    const preview = document.getElementById("slip-preview");
+    const list = document.getElementById("slip-preview-list");
+    const info = document.getElementById("slip-size-info");
+    if (!preview || !list) return;
+    if (!_slipFiles.length) { preview.style.display = "none"; list.innerHTML = ""; if (info) info.textContent = ""; return; }
+    list.innerHTML = _slipFiles.map((f, i) => `
+      <div style="position:relative">
+        <img src="${f.dataUrl}" style="max-width:150px;max-height:200px;border-radius:8px;box-shadow:var(--shadow)">
+        <button onclick="removeSlipFile(${i})" title="เอาออก"
+          style="position:absolute;top:-8px;right:-8px;width:24px;height:24px;border-radius:99px;border:none;background:#DC2626;color:#fff;cursor:pointer;font-size:13px;line-height:1">✕</button>
+      </div>`).join('');
+    const kb = Math.round(_slipFiles.reduce((a, f) => a + f.dataUrl.length, 0) / 1024);
+    if (info) info.textContent = `📎 ${_slipFiles.length} รูป · รวม ${kb} KB`;
+    preview.style.display = "block";
+  }
+
+  function removeSlipFile(i) {
+    _slipFiles.splice(i, 1);
+    _slipDataUrl = _slipFiles.length ? _slipFiles[0].dataUrl : null;
+    _slipAuto = null;
+    renderSlipPreview();
+  }
 
   async function onSlipFileChange(e, po) {
-    const file = e.target.files[0];
-    if (!file) return;
-    // Compress: resize + quality
-    try {
-      const compressed = await compressImage(file, 800, 0.7);
-      _slipDataUrl = compressed.dataUrl;
-      const preview = document.getElementById("slip-preview");
-      const img = document.getElementById("slip-preview-img");
-      const info = document.getElementById("slip-size-info");
-      img.src = compressed.dataUrl;
-      const sizeKB = Math.round(compressed.dataUrl.length / 1024);
-      info.textContent = `📎 ขนาด ${sizeKB} KB · ${compressed.width}×${compressed.height} px${sizeKB > 45 ? ' (⚠️ อาจเก็บใน Sheet ยาก — ระบบจะบีบเพิ่ม)' : ''}`;
-      preview.style.display = "block";
-      _slipAuto = null;
-      if (po) autoReadSlip(po);
-    } catch (err) {
-      toast("❌ อ่านรูปไม่ได้: " + err.message);
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const all = [...(S.sheetOrders || []), ...S.orders];
+    const o = all.find(x => x.po === po);
+    const room = Math.max(0, SLIP_MAX_IMAGES - slipImagesOf(o).length - _slipFiles.length);
+    if (room <= 0) { toast(`แนบได้สูงสุด ${SLIP_MAX_IMAGES} รูปต่อออเดอร์`); return; }
+    const take = files.slice(0, room);
+    if (files.length > room) toast(`แนบได้อีก ${room} รูป — ใช้ ${room} รูปแรก`);
+    for (const file of take) {
+      try {
+        const c = await compressImage(file, 800, 0.7);
+        _slipFiles.push({ dataUrl: c.dataUrl, width: c.width, height: c.height });
+      } catch (err) {
+        toast("❌ อ่านรูปไม่ได้: " + (err && err.message ? err.message : ''));
+      }
     }
+    _slipDataUrl = _slipFiles.length ? _slipFiles[0].dataUrl : null;
+    _slipAuto = null;
+    renderSlipPreview();
+    if (po && _slipDataUrl) autoReadSlip(po);
   }
 
   // รหัสธนาคารจาก SlipOK → ชื่อใน dropdown
@@ -1658,11 +1841,16 @@
   }
 
   async function submitSlip(po) {
-    if (!_slipDataUrl) { toast("กรุณาเลือกรูปสลิป"); return; }
-    const g = id => (document.getElementById(id)||{}).value.trim();
-    const slipData = {
+    if (!_slipFiles.length) { toast("กรุณาแนบรูปสลิปหรืออีเมลยืนยันก่อน"); return; }
+    const g = id => { const el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; };
+    const all = [...(S.sheetOrders || []), ...S.orders];
+    const o = all.find(x => x.po === po);
+    const images = _slipFiles.map(f => f.dataUrl);
+    const proof = {
       po,
-      image: _slipDataUrl,
+      kind: g("slip-kind") || 'slip',
+      images,
+      image: images[0],          // เผื่อโค้ด/ข้อมูลเดิมที่อ่านรูปเดียว
       date: g("slip-date"),
       time: g("slip-time"),
       amount: parseFloat(g("slip-amount")) || 0,
@@ -1670,28 +1858,30 @@
       note: g("slip-note"),
       uploadedAt: new Date().toISOString(),
     };
-    toast("⏳ กำลังส่งสลิป...");
+    const allProofs = [...slipProofs(o), proof];
+    const slipData = { ...proof, images: slipImagesOf({ slips: allProofs }) };
+    toast("⏳ กำลังส่งหลักฐาน...");
 
     // Update order locally
-    const all = [...(S.sheetOrders || []), ...S.orders];
-    const o = all.find(x => x.po === po);
-    if (o) {
-      o.slip = slipData;
-      o.slipStatus = 'pending_verify';
-      o.updatedAt = new Date().toISOString();
-    }
+    const patch = { slip: slipData, slips: allProofs, slipStatus: 'pending_verify', updatedAt: new Date().toISOString() };
+    if (o) Object.assign(o, patch);
     // Sync copies in both stores
     [S.orders, S.sheetOrders || []].forEach(list => {
       const idx = list.findIndex(x => x.po === po);
-      if (idx >= 0) list[idx] = { ...list[idx], slip: slipData, slipStatus: 'pending_verify', updatedAt: new Date().toISOString() };
+      if (idx >= 0) list[idx] = { ...list[idx], ...patch };
     });
     saveState();
 
     // Push to Sheet
     if (S.sheetApiUrl) {
       try {
-        const res = await apiCall("uploadSlip", { po, slip: slipData }, true);
-        if (res && res.ok) toast("✅ ส่งสลิปสำเร็จ · กำลังตรวจ...");
+        const res = await apiCall("uploadSlip", { po, slip: slipData, proofs: allProofs.map(p => ({
+          kind: p.kind || 'slip', date: p.date || '', time: p.time || '',
+          amount: Number(p.amount) || 0, bank: p.bank || '', note: p.note || '',
+          uploadedAt: p.uploadedAt || '',
+          imageCount: (Array.isArray(p.images) ? p.images.length : (p.image ? 1 : 0)),
+        })) }, true);
+        if (res && res.ok) toast("✅ ส่งหลักฐานสำเร็จ · กำลังตรวจ...");
         else toast("⚠️ ส่งบน browser สำเร็จ แต่ push Sheet ล้มเหลว: " + (res.error||''));
       } catch (e) {
         toast("⚠️ Push Sheet ล้มเหลว: " + e.message + " (แต่บันทึกในเครื่องแล้ว)");
@@ -1722,10 +1912,11 @@
         } catch (e) { console.error("SlipOK err:", e); }
       }
     } else {
-      toast("✅ ส่งสลิปสำเร็จ (บันทึกใน browser)");
+      toast("✅ ส่งหลักฐานสำเร็จ (บันทึกใน browser)");
     }
 
     _slipDataUrl = null;
+    _slipFiles = [];
     _slipAuto = null;
     go('/order/' + po);
   }
@@ -1850,13 +2041,81 @@
   // ต้องทนกับสินค้าที่หาไม่เจอ / ไม่มีขั้นราคา
   // เดิมพังทันทีถ้า p เป็น undefined หรือ p.tiers ไม่มี
   // → ทั้งหน้าตะกร้าเรนเดอร์ไม่ออก ลูกค้ากดตะกร้าแล้วไม่ขึ้นอะไรเลย
-  const priceOf = (p, qty = 1) => {
+  // =======================================================
+  // ตัวเลือกสินค้า — ได้สูงสุด 3 ชั้น เช่น ไซส์ / สี / จำนวนต่อแพ็ค
+  // แต่ละ "ชุดตัวเลือก" (variant) มี SKU · ราคา · สต็อก · น้ำหนัก · รูป เป็นของตัวเอง
+  // =======================================================
+  const MAX_OPT_GROUPS = 3;
+
+  function optionGroups(p) {
+    if (!p) return [];
+    const raw = Array.isArray(p.optionGroups) ? p.optionGroups : [];
+    const clean = raw
+      .filter(g => g && g.name && Array.isArray(g.values) && g.values.filter(Boolean).length)
+      .slice(0, MAX_OPT_GROUPS)
+      .map(g => ({ name: String(g.name), values: g.values.map(String).filter(Boolean) }));
+    if (clean.length) return clean;
+    const sizes = (p.sizes || []).map(String).filter(Boolean);
+    return sizes.length ? [{ name: 'รูปแบบ / ขนาด', values: sizes }] : [];
+  }
+
+  function variantKey(opts) { return (opts || []).join('|'); }
+
+  function variantOf(p, opts) {
+    const list = Array.isArray(p && p.variants) ? p.variants : [];
+    if (!list.length) return null;
+    const key = variantKey(opts);
+    return list.find(v => v && String(v.key) === key) || null;
+  }
+
+  function defaultOpts(p) { return optionGroups(p).map(g => g.values[0]); }
+
+  // ตัวเลือกที่ค้างอยู่อาจไม่มีแล้ว (แอดมินแก้รายการ) → ดึงกลับมาเป็นค่าแรกเสมอ
+  function normalizeOpts(p, opts) {
+    return optionGroups(p).map((g, i) => {
+      const v = opts && opts[i];
+      return g.values.indexOf(v) >= 0 ? v : g.values[0];
+    });
+  }
+
+  function optsLabel(opts) { return (opts || []).filter(Boolean).join(' / '); }
+  function variantSku(p, v)    { return (v && v.sku) || (p && p.id) || ''; }
+  function variantStock(p, v)  { const n = v && Number(v.stock); return n > 0 ? n : Number(p && p.stock) || 0; }
+  function variantWeight(p, v) { const n = v && Number(v.weight); return n > 0 ? n : Number(p && p.weight) || 0; }
+  function variantImage(p, v)  { return (v && v.image) || (p && p.cover) || ''; }
+  function variantSoldOut(p, v) {
+    if (v && v.out) return true;
+    if (v && v.stock !== undefined && v.stock !== '' && Number(v.stock) <= 0) return true;
+    return false;
+  }
+
+  // ชุดตัวเลือกของสินค้าในตะกร้า (ข้อมูลเก่าที่มีแค่ size ก็ยังใช้ได้)
+  function itemOpts(item) {
+    if (!item) return [];
+    if (Array.isArray(item.opts) && item.opts.length) return item.opts;
+    return item.size ? [item.size] : [];
+  }
+  function itemVariant(item, p) {
+    const prod = p || EP.find(x => x.id === item.pid);
+    return prod ? variantOf(prod, itemOpts(item)) : null;
+  }
+
+  // ราคาของโหมดที่ระบุ (ใช้โชว์ในตารางข้อมูลจำเพาะ)
+  function priceOfMode(p, v, mode) {
+    if (!p) return 0;
+    if (mode === 'wholesale') return (v && Number(v.wholesale) > 0) ? Number(v.wholesale) : (Number(p.wholesale) || 0);
+    return (v && Number(v.retail) > 0) ? Number(v.retail) : (Number(p.retail) || 0);
+  }
+
+  const priceOf = (p, qty = 1, v = null) => {
     if (!p) return 0;
     if (S.mode === "wholesale") {
+      if (v && Number(v.wholesale) > 0) return Number(v.wholesale);
       const tiers = Array.isArray(p.tiers) ? p.tiers : [];
       const tier = tiers.find(t => Array.isArray(t) && qty >= t[0] && qty <= t[1]);
       return Number(tier ? tier[2] : p.wholesale) || Number(p.retail) || 0;
     }
+    if (v && Number(v.retail) > 0) return Number(v.retail);
     return Number(p.retail) || 0;
   };
 
@@ -1877,7 +2136,7 @@
     return (S.cart || []).reduce((s, i) => {
       const p = EP.find(x => x.id === i.pid);
       if (!p) return s;                       // ไม่รู้ราคา ก็ไม่เอามาคิดเงิน
-      return s + priceOf(p, i.qty) * (Number(i.qty) || 0);
+      return s + priceOf(p, i.qty, itemVariant(i, p)) * (Number(i.qty) || 0);
     }, 0);
   }
   function findCoupon(code) {
@@ -2044,7 +2303,7 @@
   function cartWeight() {
     return S.cart.reduce((sum, i) => {
       const p = EP.find(x => x.id === i.pid);
-      const w = Number(p && p.weight) || 1;
+      const w = Number(variantWeight(p, itemVariant(i, p))) || 1;
       return sum + w * (Number(i.qty) || 0);
     }, 0);
   }
@@ -2266,10 +2525,17 @@
   // =======================================================
   // CART OPS
   // =======================================================
-  function addToCart(pid, qty = 1, size = null) {
-    const existing = S.cart.find(i => i.pid === pid && i.size === size);
+  function addToCart(pid, qty = 1, size = null, opts = null) {
+    const p = EP.find(x => x.id === pid);
+    const sel = opts && opts.length ? opts : (size ? [size] : (p ? defaultOpts(p) : []));
+    const key = variantKey(sel);
+    const label = optsLabel(sel) || size || null;
+    const existing = S.cart.find(i => i.pid === pid && variantKey(itemOpts(i)) === key);
     if (existing) existing.qty += qty;
-    else S.cart.push({ pid, qty, size });
+    else {
+      const v = p ? variantOf(p, sel) : null;
+      S.cart.push({ pid, qty, size: label, opts: sel, vkey: key, sku: variantSku(p, v) });
+    }
     saveState(); updateCartBadge();
   }
   function updateCartQty(idx, delta) {
@@ -2419,6 +2685,7 @@
     else if (r === "/checkout") content = viewCheckout();
     else if (r.startsWith("/success/")) content = viewOrderDetail(r.split("/")[2], true);
     else if (r.startsWith("/upload-slip/")) content = viewUploadSlip(r.split("/")[2]);
+    else if (r.startsWith("/doc/")) content = viewOrderDoc(r.split("/")[2]);
     else if (r === "/orders") content = viewOrders();
     else if (r.startsWith("/order/")) content = viewOrderDetail(r.split("/")[2], false);
     else if (r === "/login") content = viewLogin();
@@ -2923,19 +3190,41 @@
     `;
   }
 
+  // เปลี่ยนตัวเลือก → ราคา / SKU / สต็อก / รูป ด้านล่างต้องเปลี่ยนตาม
+  function pickOpt(gi, vi) {
+    const p = EP.find(x => x.id === S.pdSelPid);
+    if (!p) return;
+    const g = optionGroups(p)[gi];
+    if (!g || !g.values[vi]) return;
+    const arr = normalizeOpts(p, S.pdSel);
+    arr[gi] = g.values[vi];
+    S.pdSel = arr;
+    S.pdSize = optsLabel(arr);
+    render();
+  }
+
   function viewProduct(pid) {
     const p = EP.find(x => x.id === pid);
     if (!p) return `<div style="padding:40px;text-align:center;color:var(--text-muted)">ไม่พบสินค้า</div>`;
-    const opts = (p.sizes && p.sizes.length) ? p.sizes : ['มาตรฐาน'];
-    if (!S.pdSize || !opts.includes(S.pdSize)) S.pdSize = opts[0];
-    const cur = priceOf(p, S.mode === "wholesale" ? S.pdQty : 1);
+    const groups = optionGroups(p);
+    if (S.pdSelPid !== p.id) { S.pdSelPid = p.id; S.pdSel = defaultOpts(p); }
+    S.pdSel = normalizeOpts(p, S.pdSel);
+    S.pdSize = optsLabel(S.pdSel);                 // เผื่อโค้ดเดิมที่อ่าน pdSize
+    const vr = variantOf(p, S.pdSel);
+    const cur = priceOf(p, S.mode === "wholesale" ? S.pdQty : 1, vr);
+    const sku = variantSku(p, vr);
+    const stock = variantStock(p, vr);
+    const vweight = variantWeight(p, vr);
+    const vimage = variantImage(p, vr);
+    const outNow = variantSoldOut(p, vr);
+    if (S.pdQty > stock && stock > 0) S.pdQty = stock;
     return `
       <div class="pd-crumb"><span onclick="go('/')">หน้าแรก</span> › <span onclick="go('/cat/${p.cat}')">${CATS.find(c=>c.id===p.cat)?.name || ''}</span> › <span class="brand">${p.name.split(' ').slice(0,3).join(' ')}</span></div>
       <div class="pd">
         <div>
           <div class="pd-gallery-big" id="pd-gallery-big">
-            ${p.cover ? `<img src="${p.cover}" alt="${p.name}" onerror="this.style.display='none';this.parentNode.querySelector('.pd-icon-fallback').style.display='grid'">` : ''}
-            <div class="pd-icon-fallback" ${p.cover ? 'style="display:none"' : ''}>${p.icon}</div>
+            ${vimage ? `<img src="${vimage}" alt="${p.name}" onerror="this.style.display='none';this.parentNode.querySelector('.pd-icon-fallback').style.display='grid'">` : ''}
+            <div class="pd-icon-fallback" ${vimage ? 'style="display:none"' : ''}>${p.icon}</div>
           </div>
           <div class="pd-gallery-thumbs">
             ${(p.images && p.images.length ? p.images : [p.cover].filter(Boolean)).slice(0, 6).map((img, i) => img ? `<div class="pd-thumb ${i===0?'on':''}" onclick="document.querySelector('#pd-gallery-big img').src='${img}'"><img src="${img}" loading="lazy" onerror="this.style.display='none';this.parentNode.textContent='📸'"></div>` : `<div class="pd-thumb">📸</div>`).join('')}
@@ -2951,7 +3240,7 @@
             <span class="rating">★ ${p.rating}</span> ·
             <span>ขายแล้ว ${p.sold}</span> ·
             <span>📍 นครปฐม</span> ·
-            <span>SKU: <span class="mono">${p.id}</span></span>
+            <span>SKU: <span class="mono" id="pd-sku">${esc(sku)}</span></span>
           </div>
           <div class="pd-price-box">
             <div class="pd-price">
@@ -2971,29 +3260,53 @@
             </div>
           </div>
 
-          <div class="pd-field">
-            <div class="pd-field-label">${opts.length > 1 ? 'รูปแบบ / ขนาด' : 'สินค้า'}</div>
-            <div class="pd-opts">
-              ${opts.map(s => `<div class="pd-opt ${s===S.pdSize?'on':''}" onclick="S.pdSize='${s}';render()">${s}${s===S.pdSize?' ✓':''}</div>`).join("")}
-              ${(p.sizeOut||[]).map(s => `<div class="pd-opt out">${s} (หมด)</div>`).join("")}
+          ${groups.length ? groups.map((g, gi) => `
+            <div class="pd-field">
+              <div class="pd-field-label">${esc(g.name)}</div>
+              <div class="pd-opts">
+                ${g.values.map((val, vi) => {
+                  const on = S.pdSel[gi] === val;
+                  const dead = (p.sizeOut || []).indexOf(val) >= 0;
+                  return dead
+                    ? `<div class="pd-opt out">${esc(val)} (หมด)</div>`
+                    : `<div class="pd-opt ${on?'on':''}" onclick="pickOpt(${gi},${vi})">${esc(val)}${on?' ✓':''}</div>`;
+                }).join("")}
+              </div>
             </div>
-          </div>
+          `).join('') : ''}
+
+          ${groups.length ? `
+            <div class="pd-field" style="background:var(--surface-warm);border-radius:8px;padding:10px 12px">
+              <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:12px">
+                <span style="color:var(--text-muted)">ที่เลือก: <b style="color:var(--text)">${esc(optsLabel(S.pdSel) || '-')}</b></span>
+                <span style="color:var(--text-muted)">SKU <span class="mono">${esc(sku)}</span></span>
+              </div>
+              <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:12px;margin-top:4px">
+                <span style="color:var(--text-muted)">ราคา <b class="mono" style="color:var(--brand)">${money(cur)}</b>/แพ็ค</span>
+                <span style="color:var(--text-muted)">${vweight > 0 ? `น้ำหนัก ${vweight} kg` : ''}</span>
+                <span style="color:${outNow ? '#DC2626' : 'var(--text-muted)'}">${outNow ? 'สินค้าหมด' : `เหลือ ${stock.toLocaleString()} แพ็ค`}</span>
+              </div>
+              ${vr && vr.desc ? `<div style="font-size:12px;margin-top:6px;line-height:1.6">${esc(String(vr.desc))}</div>` : ''}
+            </div>
+          ` : ''}
 
           <div class="pd-field">
             <div class="pd-field-label">จำนวน</div>
             <div class="pd-qty">
               <div class="qty-ctrl">
                 <button onclick="S.pdQty=Math.max(1,S.pdQty-1);render()">−</button>
-                <input type="number" value="${S.pdQty}" min="1" max="${p.stock}" oninput="S.pdQty=Math.max(1,parseInt(this.value)||1)" onchange="render()">
-                <button onclick="S.pdQty=Math.min(${p.stock},S.pdQty+1);render()">+</button>
+                <input type="number" value="${S.pdQty}" min="1" max="${stock}" oninput="S.pdQty=Math.max(1,parseInt(this.value)||1)" onchange="render()">
+                <button onclick="S.pdQty=Math.min(${stock},S.pdQty+1);render()">+</button>
               </div>
-              <div style="font-size:12px;color:var(--text-muted)">เหลือ ${p.stock.toLocaleString()} แพ็ค${S.mode==='wholesale' && S.pdQty < p.moq ? ` · <b style="color:var(--brand)">ราคาส่งขั้นต่ำ ${p.moq} แพ็ค</b>` : ''}</div>
+              <div style="font-size:12px;color:var(--text-muted)">เหลือ ${stock.toLocaleString()} แพ็ค${S.mode==='wholesale' && S.pdQty < p.moq ? ` · <b style="color:var(--brand)">ราคาส่งขั้นต่ำ ${p.moq} แพ็ค</b>` : ''}</div>
             </div>
           </div>
 
           <div class="pd-actions">
-            <button class="btn btn-outline btn-big" onclick="addFromPd('${p.id}')">🛒 เพิ่มลงตะกร้า</button>
-            <button class="btn btn-primary btn-big" onclick="buyNow('${p.id}')" style="flex:1">ซื้อเลย</button>
+            ${outNow ? `<button class="btn btn-outline btn-big" disabled style="flex:1;opacity:.5;cursor:not-allowed">ตัวเลือกนี้สินค้าหมด</button>` : `
+              <button class="btn btn-outline btn-big" onclick="addFromPd('${p.id}')">🛒 เพิ่มลงตะกร้า</button>
+              <button class="btn btn-primary btn-big" onclick="buyNow('${p.id}')" style="flex:1">ซื้อเลย</button>
+            `}
           </div>
 
           <div class="pd-guarantees">
@@ -3017,14 +3330,15 @@
         <section class="pd-section">
           <h3 class="pd-h3">📐 ข้อมูลจำเพาะ</h3>
           <table class="pd-specs">
-            <tr><td>รหัสสินค้า (SKU)</td><td class="mono">${p.id}</td></tr>
+            <tr><td>รหัสสินค้า (SKU)</td><td class="mono">${esc(sku)}</td></tr>
             <tr><td>หมวดหมู่</td><td>${CATS.find(c=>c.id===p.cat)?.name || p.cat}</td></tr>
-            <tr><td>รูปแบบ/ขนาดที่มี</td><td>${opts.length} แบบ (${opts.join(', ')})</td></tr>
-            ${p.weight ? `<tr><td>น้ำหนักต่อแพ็ค</td><td class="mono">${p.weight} kg</td></tr>` : ''}
+            ${groups.map(g => `<tr><td>${esc(g.name)}ที่มี</td><td>${g.values.length} แบบ (${esc(g.values.join(', '))})</td></tr>`).join('')}
+            ${groups.length ? `<tr><td>ที่เลือกอยู่</td><td><b>${esc(optsLabel(S.pdSel) || '-')}</b></td></tr>` : ''}
+            ${vweight ? `<tr><td>น้ำหนักต่อแพ็ค</td><td class="mono">${vweight} kg</td></tr>` : ''}
             ${p.dimensions ? `<tr><td>ขนาดกล่อง (กว้าง×ยาว×สูง)</td><td class="mono">${p.dimensions}</td></tr>` : ''}
-            <tr><td>สต็อกคงเหลือ</td><td class="mono">${p.stock.toLocaleString()} แพ็ค</td></tr>
-            <tr><td>ราคาปลีก</td><td class="mono">${money(p.retail)} / แพ็ค</td></tr>
-            <tr><td>ราคาส่ง (เริ่มต้น)</td><td class="mono" style="color:var(--wholesale)">${money(p.wholesale)} / แพ็ค</td></tr>
+            <tr><td>สต็อกคงเหลือ</td><td class="mono">${stock.toLocaleString()} แพ็ค</td></tr>
+            <tr><td>ราคาปลีก</td><td class="mono">${money(priceOfMode(p, vr, 'retail'))} / แพ็ค</td></tr>
+            <tr><td>ราคาส่ง (เริ่มต้น)</td><td class="mono" style="color:var(--wholesale)">${money(priceOfMode(p, vr, 'wholesale'))} / แพ็ค</td></tr>
             <tr><td>ขั้นต่ำสั่งราคาส่ง</td><td class="mono">${p.moq} แพ็ค</td></tr>
             <tr><td>ยอดขาย</td><td>${p.sold} แพ็ค</td></tr>
             <tr><td>คะแนนรีวิว</td><td><span style="color:var(--gold)">★ ${p.rating}</span> / 5</td></tr>
@@ -3033,17 +3347,30 @@
         </section>
 
         <!-- Variants preview -->
-        ${opts.length > 1 ? `
-        <section class="pd-section">
-          <h3 class="pd-h3">🎨 รูปแบบทั้งหมด (${opts.length} แบบ)</h3>
-          <div class="pd-variants-grid">
-            ${opts.map(s => `<div class="pd-variant ${s===S.pdSize?'on':''}" onclick="S.pdSize='${s}';render()">
-              <div class="pd-variant-icon">${p.icon}</div>
-              <div class="pd-variant-name">${s}</div>
-              ${s===S.pdSize?'<div class="pd-variant-check">✓ เลือกอยู่</div>':''}
-            </div>`).join("")}
-          </div>
-        </section>` : ''}
+        ${(() => {
+          const list = Array.isArray(p.variants) ? p.variants.filter(v => v && v.key) : [];
+          if (!list.length) return '';
+          const here = variantKey(S.pdSel);
+          return `
+          <section class="pd-section">
+            <h3 class="pd-h3">🎨 ตัวเลือกทั้งหมดที่ตั้งราคาไว้ (${list.length} แบบ)</h3>
+            <div style="overflow-x:auto">
+              <table class="pd-specs" style="min-width:420px">
+                <tr style="font-weight:700"><td>ตัวเลือก</td><td>SKU</td><td>ราคา</td><td>สต็อก</td></tr>
+                ${list.map(v => {
+                  const on = String(v.key) === here;
+                  const dead = variantSoldOut(p, v);
+                  return `<tr style="${on ? 'background:var(--brand-soft)' : ''}">
+                    <td>${esc(String(v.key).split('|').join(' / '))}${on ? ' ✓' : ''}</td>
+                    <td class="mono" style="font-size:11px">${esc(variantSku(p, v))}</td>
+                    <td class="mono">${money(priceOf(p, S.pdQty, v))}</td>
+                    <td>${dead ? '<span style="color:#DC2626">หมด</span>' : variantStock(p, v).toLocaleString()}</td>
+                  </tr>`;
+                }).join('')}
+              </table>
+            </div>
+          </section>`;
+        })()}
 
         <!-- Shipping info -->
         <section class="pd-section">
@@ -3120,8 +3447,12 @@
 
   function addFromPd(pid) {
     const p = EP.find(x => x.id === pid);
-    addToCart(pid, S.pdQty, S.pdSize);
-    toast(`เพิ่ม ${p.name.slice(0,25)}… × ${S.pdQty} แล้ว 🛒`);
+    if (!p) { toast("ไม่พบสินค้านี้แล้ว"); return; }
+    const sel = normalizeOpts(p, S.pdSel);
+    const v = variantOf(p, sel);
+    if (variantSoldOut(p, v)) { toast("ตัวเลือกนี้สินค้าหมด — เลือกแบบอื่นก่อน"); return; }
+    addToCart(pid, S.pdQty, optsLabel(sel) || null, sel);
+    toast(`เพิ่ม ${p.name.slice(0,25)}…${optsLabel(sel) ? ' (' + optsLabel(sel) + ')' : ''} × ${S.pdQty} แล้ว 🛒`);
   }
   function buyNow(pid) { addFromPd(pid); go('/cart'); }
 
@@ -3182,12 +3513,13 @@
                 <div class="cart-del" onclick="removeCart(${idx});render()" title="ลบ">🗑️</div>
               </div>`;
             }
-            const each = priceOf(p, item.qty);
+            const vr = itemVariant(item, p);
+            const each = priceOf(p, item.qty, vr);
             const line = each * item.qty;
             return `<div class="cart-row">
               <div class="cart-thumb">${productThumb(p)}</div>
-              <div class="cart-nm">${esc(p.name || '')}<div class="sub">${item.size ? 'ขนาด: '+esc(item.size)+' · ' : ''}SKU: ${esc(p.id)}${(() => {
-                const w = Number(p.weight) || 0;
+              <div class="cart-nm">${esc(p.name || '')}<div class="sub">${item.size ? esc(item.size)+' · ' : ''}SKU: ${esc(variantSku(p, vr))}${(() => {
+                const w = Number(variantWeight(p, vr)) || 0;
                 // ลูกค้าไม่ต้องรับรู้เรื่องข้อมูลไม่ครบ — บอกเฉพาะแอดมินที่แก้ได้
                 if (!w) return isAdmin() ? ' · <span style="color:#b45309">⚠️ ยังไม่มีน้ำหนักใน Sheet (คิด 1 kg)</span>' : '';
                 return ` · ${fmtKg(w)} × ${item.qty} = <b>${fmtKg(w * item.qty)}</b>`;
@@ -3315,9 +3647,10 @@
               </div>
             ` : `
               <div class="form-grid">
-                <div class="form-field"><label>เลขประจำตัวผู้เสียภาษี (13 หลัก)</label><input id="co-taxid" class="mono" value="0-1055-58001-23-4"></div>
-                <div class="form-field"><label>สาขา</label><input id="co-branch" value="สำนักงานใหญ่"></div>
-                <div class="form-field wide"><label>ชื่อบริษัท / ผู้ประกอบการ</label><input id="co-company" value="บริษัท ร่มเย็น จำกัด"></div>
+                <div class="form-field"><label>เลขประจำตัวผู้เสียภาษี (13 หลัก) *</label><input id="co-taxid" class="mono" value="${esc(S.buyerTaxId||'')}" placeholder="เช่น 0105558001234" inputmode="numeric"></div>
+                <div class="form-field"><label>สาขา</label><input id="co-branch" value="${esc(S.buyerBranch||'สำนักงานใหญ่')}"></div>
+                <div class="form-field wide"><label>ชื่อบริษัท / ผู้ประกอบการ *</label><input id="co-company" value="${esc(S.buyerCompany||'')}" placeholder="ชื่อตามหนังสือรับรอง"></div>
+                <div class="form-field wide"><label>ที่อยู่ตามใบกำกับภาษี</label><input id="co-caddr" value="${esc(S.buyerCompanyAddr||'')}" placeholder="ถ้าไม่กรอก จะใช้ที่อยู่จัดส่ง"></div>
               </div>
               <div style="margin-top:10px;font-size:11px;color:var(--text-muted)">💡 <a onclick="go('/register')" style="color:var(--brand);cursor:pointer">สมัครสมาชิกในนามนิติบุคคล</a> เพื่อไม่ต้องกรอกใหม่ทุกครั้ง</div>
             `) : `<div style="font-size:12px;color:var(--text-muted)">จะออกใบเสร็จทั่วไปให้ (ไม่ใช่ใบกำกับภาษี)</div>`}
@@ -3383,7 +3716,7 @@
               <div class="nm" style="color:#b02a2a">สินค้านี้ไม่มีแล้ว<div class="sub">${esc(item.pid)}</div></div>
               <div class="mono">—</div>
             </div>`;
-            const line = priceOf(p, item.qty) * item.qty;
+            const line = priceOf(p, item.qty, itemVariant(item, p)) * item.qty;
             const nm = String(p.name || '');
             return `<div class="ord-line">
               <div class="th">${productThumb(p)}</div>
@@ -3408,8 +3741,71 @@
   // กันกดซ้ำระหว่างรอ Sheet ตอบ — ไม่งั้นได้ออเดอร์/สมาชิกซ้ำ
   let _submitting = false;
 
+  // ---------- ตรวจความครบของฟอร์มก่อนสั่งซื้อ ----------
+  // ช่องที่มี * ต้องกรอก — เดิมปล่อยผ่านหมด ทำให้ได้ออเดอร์ที่ไม่มีที่อยู่/เบอร์
+  function coFieldValue(id) {
+    const el = document.getElementById(id);
+    return el ? String(el.value || '').trim() : null;   // null = ไม่มีช่องนี้บนหน้าจอ
+  }
+
+  function coMissingFields() {
+    const out = [];
+    const need = (id, label) => {
+      const v = coFieldValue(id);
+      if (v === null) return;          // ช่องไม่ได้แสดง (เช่น ใช้ที่อยู่ที่บันทึกไว้)
+      if (!v) out.push({ id, label });
+    };
+    need('co-name', 'ชื่อ-นามสกุล');
+    need('co-phone', 'เบอร์โทร');
+    if (S.coShipping !== 'pickup') {
+      need('co-addr', 'ที่อยู่');
+      need('co-prov', 'จังหวัด');
+      need('co-dist', 'อำเภอ/เขต');
+      need('co-subdist', 'ตำบล/แขวง');
+      need('co-zip', 'รหัสไปรษณีย์');
+    }
+    const phone = coFieldValue('co-phone');
+    if (phone && phone.replace(/\D/g, '').length < 9) out.push({ id: 'co-phone', label: 'เบอร์โทรไม่ครบ' });
+    if (S.coTaxOn) {
+      need('co-taxid', 'เลขประจำตัวผู้เสียภาษี');
+      need('co-company', 'ชื่อบริษัท');
+      const tax = coFieldValue('co-taxid');
+      if (tax && tax.replace(/\D/g, '').length !== 13) out.push({ id: 'co-taxid', label: 'เลขผู้เสียภาษีต้องมี 13 หลัก' });
+    }
+    return out;
+  }
+
+  function coMarkMissing(list) {
+    ['co-name','co-phone','co-addr','co-prov','co-dist','co-subdist','co-zip','co-taxid','co-company'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.borderColor = '';
+    });
+    list.forEach(m => {
+      const el = document.getElementById(m.id);
+      if (el) el.style.borderColor = '#DC2626';
+    });
+    const first = list.length && document.getElementById(list[0].id);
+    if (first && first.scrollIntoView) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (first && first.focus) { try { first.focus(); } catch (e) {} }
+  }
+
+  // ล็อกอินแล้วแต่ไม่มีที่อยู่เลย = ส่งของไม่ได้
+  function coAddressReady() {
+    if (!isLoggedIn()) return true;
+    if (S.coShipping === 'pickup') return true;
+    if (document.getElementById('co-name')) return true;   // กำลังกรอกฟอร์มสดอยู่
+    return !!currentShipAddress();
+  }
+
   async function placeOrder() {
     if (_submitting) { toast("⏳ กำลังดำเนินการ กรุณารอสักครู่"); return; }
+    if (!coAddressReady()) { toast("⛔ ยังไม่มีที่อยู่จัดส่ง — กด \"+ เพิ่มที่อยู่ใหม่\" ก่อน"); return; }
+    const miss = coMissingFields();
+    if (miss.length) {
+      coMarkMissing(miss);
+      toast("⛔ กรอกให้ครบก่อน: " + miss.map(m => m.label).join(' · '));
+      return;
+    }
     const missing = missingCartItems();
     if (missing.length) {
       toast(`⛔ มี ${missing.length} รายการที่ไม่มีในร้านแล้ว — ลบออกก่อนสั่งซื้อ`);
@@ -3450,6 +3846,20 @@
       const fullAddr = `${g('co-addr')} ต.${g('co-subdist')} อ.${g('co-dist')} จ.${g('co-prov')} ${g('co-zip')}`.replace(/\s+/g, ' ').trim();
       customer = { name: g('co-name') || 'ลูกค้า', phone: g('co-phone'), address: fullAddr };
     }
+    // ใบกำกับภาษี — อ่านจากฟอร์มเสมอ ไม่ว่าจะเป็นสมาชิกนิติบุคคลหรือไม่
+    if (S.coTaxOn) {
+      const t = id => (document.getElementById(id) || {}).value;
+      const taxId   = String(t('co-taxid')   || customer.taxId   || '').trim();
+      const company = String(t('co-company') || customer.company || '').trim();
+      const branch  = String(t('co-branch')  || '').trim();
+      const caddr   = String(t('co-caddr')   || '').trim();
+      if (taxId)   customer.taxId = taxId;
+      if (company) customer.company = company;
+      if (branch)  customer.branch = branch;
+      customer.companyAddress = caddr || customer.address;
+      // จำไว้ให้ครั้งหน้าไม่ต้องกรอกซ้ำ
+      S.buyerTaxId = taxId; S.buyerCompany = company; S.buyerBranch = branch; S.buyerCompanyAddr = caddr;
+    }
     const order = {
       po: poNo,
       status: "pending_payment",   // ทุกออเดอร์ต้องโอนเงิน + แนบสลิปก่อนเสมอ
@@ -3458,7 +3868,10 @@
       discount: disc,
       shipping: ship + remote,
       remoteFee: remote,
-      items: [...S.cart].map(i => ({ ...i, priceEach: priceOf(EP.find(p=>p.id===i.pid), i.qty) })),
+      items: [...S.cart].map(i => {
+        const p = EP.find(x => x.id === i.pid);
+        return { ...i, sku: i.sku || variantSku(p, itemVariant(i, p)), priceEach: priceOf(p, i.qty, itemVariant(i, p)) };
+      }),
       shippingMethod: S.coShipping,
       carrierName: null,
       tracking: null,
@@ -3497,10 +3910,10 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 77;
+  const APP_VERSION = 78;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
-  const NEED_BACKEND = 50;
+  const NEED_BACKEND = 51;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -7485,14 +7898,28 @@
               📸 สลิปโอนเงิน
               <span style="background:${o.slipStatus==='verified'?'var(--success)':'var(--gold)'};color:${o.slipStatus==='verified'?'#fff':'#1a1a1a'};padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700">${o.slipStatus==='verified'?'✓ ยืนยันแล้ว':'⏳ รอตรวจ'}</span>
             </h3>
-            ${o.slip.image?`<img src="${o.slip.image}" style="max-width:100%;max-height:400px;border-radius:8px;cursor:pointer;box-shadow:var(--shadow);margin-bottom:12px" onclick="window.open('${o.slip.image}','_blank')" title="คลิกดูรูปเต็ม">`:''}
-            <table class="pd-specs" style="font-size:13px">
-              <tr><td>วัน-เวลาที่โอน</td><td>${o.slip.date} ${o.slip.time}</td></tr>
-              <tr><td>ยอด</td><td class="mono">${money(o.slip.amount)}</td></tr>
-              <tr><td>ธนาคาร</td><td>${o.slip.bank||'-'}</td></tr>
-              ${o.slip.note?`<tr><td>หมายเหตุ</td><td>${o.slip.note}</td></tr>`:''}
-              <tr><td>อัพโหลดเมื่อ</td><td style="font-size:11px">${new Date(o.slip.uploadedAt).toLocaleString('th-TH')}</td></tr>
-            </table>
+            ${(() => {
+              const imgs = slipImagesOf(o);
+              const proofs = slipProofs(o);
+              const sum = proofs.reduce((a, p) => a + (Number(p.amount) || 0), 0);
+              return `
+                ${imgs.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+                  ${imgs.map(img => `<img src="${img}" style="max-width:${imgs.length>1?'46%':'100%'};max-height:400px;border-radius:8px;cursor:pointer;box-shadow:var(--shadow)" onclick="window.open('${img}','_blank')" title="คลิกดูรูปเต็ม">`).join('')}
+                </div>` : ''}
+                ${proofs.length > 1 ? `<div style="font-size:12px;background:var(--wholesale-soft);color:var(--wholesale);padding:8px 12px;border-radius:6px;margin-bottom:10px">
+                  ⚠️ ลูกค้าแจ้งโอน ${proofs.length} ครั้ง · รวม ${money(sum)} (ต้องชำระ ${money(o.total)})${Math.abs(sum - Number(o.total||0)) > 1 ? ' — <b>ยอดไม่ตรง ตรวจก่อนยืนยัน</b>' : ' ✓ ยอดตรง'}
+                </div>` : ''}
+                ${proofs.map((p, i) => `<table class="pd-specs" style="font-size:13px;margin-bottom:8px">
+                  ${proofs.length > 1 ? `<tr><td colspan="2" style="font-weight:700">ครั้งที่ ${i+1}</td></tr>` : ''}
+                  <tr><td>ประเภท</td><td>${SLIP_KINDS[p.kind] || SLIP_KINDS.slip}</td></tr>
+                  <tr><td>วัน-เวลาที่โอน</td><td>${esc(String(p.date||'-'))} ${esc(String(p.time||''))}</td></tr>
+                  <tr><td>ยอด</td><td class="mono">${money(p.amount || 0)}</td></tr>
+                  <tr><td>ธนาคาร</td><td>${esc(String(p.bank||'-'))}</td></tr>
+                  ${p.note?`<tr><td>หมายเหตุ</td><td>${esc(String(p.note))}</td></tr>`:''}
+                  <tr><td>อัพโหลดเมื่อ</td><td style="font-size:11px">${p.uploadedAt ? new Date(p.uploadedAt).toLocaleString('th-TH') : '-'}</td></tr>
+                </table>`).join('')}
+              `;
+            })()}
             ${o.slipStatus!=='verified' ? `
               <div style="display:flex;gap:10px;margin-top:12px">
                 <button class="btn btn-primary" style="flex:1" onclick="verifySlip('${o.po}',true)">✅ ยืนยันสลิป → paid</button>
@@ -8362,6 +8789,123 @@
     render();
   }
 
+  // ---------- ตัวแก้ "ตัวเลือกสินค้า" ในหน้าแอดมิน ----------
+  let _aeVariants = [];
+  let _aePid = null;
+
+  function aeInit(p) {
+    const key = p.id || '@new';
+    if (_aePid === key) return;                    // กำลังแก้อยู่ อย่ารีเซ็ตทิ้ง
+    _aePid = key;
+    _aeVariants = (Array.isArray(p.variants) ? p.variants : []).map(v => ({
+      key: String(v.key || ''), opts: String(v.key || '').split('|'),
+      sku: v.sku || '', retail: v.retail || '', wholesale: v.wholesale || '',
+      stock: v.stock === undefined ? '' : v.stock, weight: v.weight || '',
+      image: v.image || '', out: !!v.out,
+    }));
+  }
+
+  function aeReadGroups() {
+    const out = [];
+    for (let i = 1; i <= MAX_OPT_GROUPS; i++) {
+      const nm = String(((document.getElementById('ae-og' + i + '-name') || {}).value) || '').trim();
+      const vs = String(((document.getElementById('ae-og' + i + '-vals') || {}).value) || '')
+        .split(',').map(x => x.trim()).filter(Boolean);
+      if (nm && vs.length) out.push({ name: nm, values: vs });
+    }
+    return out;
+  }
+
+  function aeCombos(groups) {
+    if (!groups.length) return [];
+    let acc = [[]];
+    groups.forEach(g => {
+      const next = [];
+      acc.forEach(a => g.values.forEach(v => next.push(a.concat([v]))));
+      acc = next;
+    });
+    return acc;
+  }
+
+  function aeBuildVariants(baseId) {
+    const groups = aeReadGroups();
+    if (!groups.length) { _aeVariants = []; aeRenderVariants(); toast("ยังไม่ได้ใส่ตัวเลือก"); return; }
+    const combos = aeCombos(groups);
+    if (combos.length > 60) { toast(`ตัวเลือกเยอะเกินไป (${combos.length} แบบ) — ลดจำนวนลงก่อน`); return; }
+    const prev = {};
+    _aeVariants.forEach(v => { prev[v.key] = v; });
+    _aeVariants = combos.map((c, i) => {
+      const key = variantKey(c);
+      const o = prev[key] || {};
+      return {
+        key, opts: c,
+        sku: o.sku || ((baseId || 'SKU') + '-' + (i + 1)),
+        retail: o.retail || '', wholesale: o.wholesale || '',
+        stock: o.stock === undefined ? '' : o.stock, weight: o.weight || '',
+        image: o.image || '', out: !!o.out,
+      };
+    });
+    aeRenderVariants();
+    toast(`สร้างตาราง ${combos.length} แบบแล้ว`);
+  }
+
+  function aeSetV(i, field, val) {
+    if (!_aeVariants[i]) return;
+    _aeVariants[i][field] = field === 'out' ? !!val : val;
+  }
+
+  function aeRenderVariants() {
+    const box = document.getElementById('ae-variants');
+    if (box) box.innerHTML = aeVariantsHtml();
+  }
+
+  function aeVariantsHtml() {
+    if (!_aeVariants.length) {
+      return `<div style="font-size:12px;color:var(--text-muted);padding:10px 0">
+        ยังไม่มีตาราง — ใส่ตัวเลือกด้านบนแล้วกด "🔄 สร้างตารางตัวเลือก"<br>
+        ถ้าไม่ใส่อะไรเลย สินค้าจะใช้ราคา/สต็อกหลักแบบเดิม
+      </div>`;
+    }
+    return `
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:720px">
+          <thead><tr style="background:var(--surface-warm)">
+            <th style="text-align:left;padding:6px 8px">ตัวเลือก</th>
+            <th style="padding:6px 8px;width:120px">SKU</th>
+            <th style="padding:6px 8px;width:90px">ราคาปลีก</th>
+            <th style="padding:6px 8px;width:90px">ราคาส่ง</th>
+            <th style="padding:6px 8px;width:80px">สต็อก</th>
+            <th style="padding:6px 8px;width:80px">น้ำหนัก</th>
+            <th style="padding:6px 8px;width:150px">รูป (URL)</th>
+            <th style="padding:6px 8px;width:50px">หมด</th>
+          </tr></thead>
+          <tbody>
+            ${_aeVariants.map((v, i) => {
+              const cell = (field, ph, type) => `<input ${type ? `type="${type}" step="0.01" min="0"` : ''}
+                value="${esc(String(v[field] === undefined ? '' : v[field]))}" placeholder="${ph}"
+                oninput="aeSetV(${i},'${field}',this.value)"
+                style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-family:inherit;font-size:12px">`;
+              return `<tr style="border-top:1px solid var(--border)">
+                <td style="padding:5px 8px;font-weight:600">${esc(v.opts.join(' / '))}</td>
+                <td style="padding:5px 8px">${cell('sku', 'อัตโนมัติ')}</td>
+                <td style="padding:5px 8px">${cell('retail', 'ตามหลัก', 'number')}</td>
+                <td style="padding:5px 8px">${cell('wholesale', 'ตามหลัก', 'number')}</td>
+                <td style="padding:5px 8px">${cell('stock', 'ตามหลัก', 'number')}</td>
+                <td style="padding:5px 8px">${cell('weight', 'ตามหลัก', 'number')}</td>
+                <td style="padding:5px 8px">${cell('image', 'ตามรูปหลัก')}</td>
+                <td style="padding:5px 8px;text-align:center">
+                  <input type="checkbox" ${v.out ? 'checked' : ''} onchange="aeSetV(${i},'out',this.checked)">
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px">
+        เว้นว่าง = ใช้ค่าหลักของสินค้า · ใส่เฉพาะช่องที่ต่างกันก็พอ
+      </div>`;
+  }
+
   function viewAdminEdit(pid) {
     if (!isAdmin()) { setTimeout(() => go('/login'), 10); return ''; }
     const isNew = !pid;
@@ -8369,6 +8913,9 @@
     if (!isNew && !existing) return `<div style="padding:40px;text-align:center">ไม่พบสินค้า</div>`;
     const p = existing || { id: '', cat: 'foodbox', name: '', icon: '🍱', cover: '', images: [], retail: 0, wholesale: 0, moq: 20, strike: 0, discount: 26, stock: 100, sizes: ['มาตรฐาน'], sizeOut: [], desc: '', sold: '0+', rating: 4.8, mall: true, tiers: [] };
     const catNames = CATS.filter(c => c.id !== 'all');
+    aeInit(p);
+    const gs = optionGroups(p);
+    const og = i => gs[i] || { name: '', values: [] };
     return `
       <div class="admin-header">
         <div style="display:flex;align-items:center;gap:14px">
@@ -8413,8 +8960,22 @@
         </div>
 
         <div class="admin-form-section">
-          <h3>รูปแบบ / ขนาด</h3>
-          <div class="form-field wide"><label>รูปแบบ/ขนาดที่มี (แยกด้วย comma)</label><input id="ae-sizes" value="${(p.sizes||[]).join(', ')}" placeholder="เช่น: 10oz, 12oz, 16oz"></div>
+          <h3>ตัวเลือกสินค้า (ได้สูงสุด ${MAX_OPT_GROUPS} ชั้น)</h3>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+            เช่น ชั้น 1 = ไซส์ · ชั้น 2 = สี · ชั้น 3 = จำนวนต่อแพ็ค — ลูกค้าจะเลือกทีละชั้น แล้วราคา/SKU/สต็อกจะเปลี่ยนตามที่ตั้งไว้ข้างล่าง
+          </div>
+          <div class="form-grid">
+            ${[0,1,2].map(i => `
+              <div class="form-field"><label>ชื่อชั้นที่ ${i+1}</label>
+                <input id="ae-og${i+1}-name" value="${esc(og(i).name)}" placeholder="${['ไซส์','สี','จำนวน/แพ็ค'][i]}"></div>
+              <div class="form-field"><label>ตัวเลือกชั้นที่ ${i+1} (คั่นด้วย ,)</label>
+                <input id="ae-og${i+1}-vals" value="${esc(og(i).values.join(', '))}" placeholder="${['S, M, L','ใส, ขาว, ดำ','50 ใบ, 100 ใบ'][i]}"></div>
+            `).join('')}
+          </div>
+          <div style="margin-top:10px">
+            <button type="button" class="btn btn-outline" onclick="aeBuildVariants('${esc(p.id||'')}')">🔄 สร้างตารางตัวเลือก</button>
+          </div>
+          <div id="ae-variants" style="margin-top:12px">${aeVariantsHtml()}</div>
         </div>
 
         <div class="admin-form-section">
@@ -8456,6 +9017,19 @@
     const wholesale = parseFloat(g('ae-wholesale').value) || 0;
     if (retail <= 0) { toast("กรุณาใส่ราคาปลีก"); return; }
     const existing = !isNew ? EP.find(x => x.id === pid) : null;
+    const optGroups = aeReadGroups();
+    // เก็บเฉพาะแถวที่ตั้งค่าอะไรไว้จริง — แถวว่างใช้ค่าหลักของสินค้าอยู่แล้ว
+    const num = v => (v === '' || v === null || v === undefined) ? undefined : (Number(v) || 0);
+    const variantRows = _aeVariants.map(v => {
+      const row = { key: v.key, sku: String(v.sku || '').trim() };
+      if (num(v.retail) !== undefined)    row.retail = num(v.retail);
+      if (num(v.wholesale) !== undefined) row.wholesale = num(v.wholesale);
+      if (num(v.stock) !== undefined)     row.stock = num(v.stock);
+      if (num(v.weight) !== undefined)    row.weight = num(v.weight);
+      if (String(v.image || '').trim())   row.image = String(v.image).trim();
+      if (v.out) row.out = true;
+      return row;
+    }).filter(r => r.key);
     const data = {
       id: idVal, name, cat: g('ae-cat').value,
       retail, wholesale,
@@ -8466,7 +9040,9 @@
       sold: g('ae-sold').value.trim() || '0+',
       cover: g('ae-cover').value.trim(),
       desc: g('ae-desc').value.trim(),
-      sizes: g('ae-sizes').value.split(',').map(s => s.trim()).filter(Boolean),
+      optionGroups: optGroups,
+      variants: variantRows,
+      sizes: optGroups.length ? optGroups[0].values : (existing ? (existing.sizes || []) : []),
       weight: parseFloat((g('ae-weight')||{value:0}).value) || 0,
       dimensions: (g('ae-dims')||{value:''}).value.trim(),
       images: [g('ae-cover').value.trim()].filter(Boolean),
@@ -8488,6 +9064,7 @@
       }
     }
 
+    _aePid = null;   // ออกจากหน้าแก้แล้ว ครั้งหน้าให้โหลดตัวเลือกจากสินค้าใหม่
     if (isNew) {
       S.newProducts.push(data);
     } else {
@@ -8686,7 +9263,7 @@
 
           <div class="co-card" style="margin:0">
             <h3 style="margin-bottom:8px">📄 เอกสาร</h3>
-            <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px"><span>📋 ใบสั่งซื้อ</span><span style="color:var(--brand);cursor:pointer">ดาวน์โหลด PDF →</span></div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px"><span>📋 ใบสั่งซื้อ</span><span style="color:var(--brand);cursor:pointer;font-weight:700" onclick="go('/doc/${o.po}')">ดาวน์โหลด PDF →</span></div>
             <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-top:1px dashed var(--border)"><span>🧾 ใบกำกับภาษี</span><span style="color:var(--text-muted);font-size:11px">${o.taxInvoice ? 'รอชำระเงินก่อน' : 'ไม่ได้ขอ'}</span></div>
             <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-top:1px dashed var(--border)"><span>🚚 ใบส่งสินค้า</span><span style="color:var(--text-muted);font-size:11px">รอจัดส่ง</span></div>
           </div>
