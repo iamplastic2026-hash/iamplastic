@@ -4031,10 +4031,10 @@
   // AUTH — Login (Admin + Customer)
   // =======================================================
   // เวอร์ชันของ index.html — ใช้เช็คว่า browser โหลดไฟล์ใหม่แล้วหรือยัง
-  const APP_VERSION = 86;
+  const APP_VERSION = 88;
   // เวอร์ชัน Code.gs ที่เว็บรุ่นนี้ต้องใช้ — ⚠️ แก้ Code.gs เมื่อไหร่ ต้องขยับเลขนี้ด้วยทุกครั้ง
   // (เคยลืม ทำให้หน้าตรวจสอบขึ้นว่า "ไม่ต้อง deploy ใหม่" ทั้งที่ backend ตกรุ่นอยู่)
-  const NEED_BACKEND = 57;
+  const NEED_BACKEND = 58;
 
   // ค่าเริ่มต้น — ใช้เฉพาะตอนยังไม่เคยตั้งรหัสเอง (เปลี่ยนได้ที่ /admin/account)
   const ADMIN_USERNAME = "admin";
@@ -4259,7 +4259,17 @@
   // =======================================================
   function getUserAddresses() {
     if (!S.user) return [];
-    const clean = list => (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object');
+    const clean = list => {
+      const out = (Array.isArray(list) ? list : []).filter(a => a && typeof a === 'object');
+      // ข้อมูลเก่าที่เคยได้รหัสซ้ำกัน — ซ่อมให้ไม่ชนกัน ไม่งั้นแก้/ลบไปโดนผิดอัน
+      const seen = {};
+      out.forEach(a => {
+        const id = String(a.id || '');
+        if (!id || seen[id]) a.id = newId('ADDR');
+        seen[String(a.id)] = true;
+      });
+      return out;
+    };
     // ถ้ามีใน registeredUsers ให้ sync จากนั้น
     const registered = S.registeredUsers.find(u => u.phone === S.user.phone || u.email === S.user.email);
     if (registered && clean(registered.addresses).length) return clean(registered.addresses);
@@ -4354,7 +4364,17 @@
     `;
   }
 
-  function saveAddress(existingId) {
+  // รหัสที่ไม่มีทางซ้ำ — ใช้ Date.now() เฉยๆ ไม่พอ
+  // เพิ่มที่อยู่ 2 อันรัวๆ ในมิลลิวินาทีเดียวจะได้รหัสเดียวกัน
+  // แล้วการตั้งค่าเริ่มต้น/แก้/ลบ จะไปโดนผิดอัน (หรือโดนทั้งคู่)
+  let _idSeq = 0;
+  function newId(prefix) {
+    _idSeq = (_idSeq + 1) % 100000;
+    const rnd = Math.floor(Math.random() * 1e6).toString(36);
+    return `${prefix}-${Date.now().toString(36)}-${_idSeq}-${rnd}`;
+  }
+
+  async function saveAddress(existingId) {
     const g = id => (document.getElementById(id)||{}).value.trim();
     const label = g('ad-label');
     const name = g('ad-name');
@@ -4367,7 +4387,7 @@
     const dist = g('ad-dist');
     const fullAddress = `${addr} ต.${subdist||''} อ.${dist||''} จ.${prov} ${zip}`.replace(/\s+/g, ' ').trim();
     const address = {
-      id: existingId || ('ADDR-' + Date.now()),
+      id: existingId || newId('ADDR'),
       label, name, phone, addr, subdist, dist, prov, zip, fullAddress,
       isDefault: false,
     };
@@ -4393,27 +4413,49 @@
       list.push(address);
     }
     saveState();
+    await persistAddresses();
     toast(existingId ? "บันทึกที่อยู่แล้ว ✓" : "เพิ่มที่อยู่แล้ว ✓");
     go('/account/addresses');
   }
 
-  function setDefaultAddress(id) {
+  // ที่อยู่ต้องขึ้นระบบกลางด้วย ไม่งั้นอยู่แค่เครื่องนี้เครื่องเดียว
+  // และการดึงข้อมูลลูกค้ารอบถัดไปจะเอาของเก่ามาทับที่เพิ่งแก้
+  async function persistAddresses() {
+    if (!S.user) return false;
+    const rIdx = S.registeredUsers.findIndex(u => u.phone === S.user.phone || u.email === S.user.email);
+    const list = rIdx >= 0 ? (S.registeredUsers[rIdx].addresses || []) : (S.user.addresses || []);
+    // ให้ S.user เห็นชุดเดียวกันทันที (ค่าส่ง/หน้า checkout อ่านจากตรงนี้)
+    S.user.addresses = list;
+    if (rIdx >= 0) S.registeredUsers[rIdx].addresses = list;
+    saveState();
+    if (!centralApiUrl()) return false;
+    const who = rIdx >= 0 ? S.registeredUsers[rIdx] : S.user;
+    const res = await pushCustomerToSheet({ ...who, addresses: list });
+    if (!res.ok && !res.exists) toast("⚠️ ที่อยู่บันทึกในเครื่องแล้ว แต่ยังไม่ขึ้นระบบกลาง");
+    return !!res.ok;
+  }
+
+  async function setDefaultAddress(id) {
     const rIdx = S.registeredUsers.findIndex(u => u.phone === S.user.phone || u.email === S.user.email);
     const list = rIdx >= 0 ? S.registeredUsers[rIdx].addresses : (S.user.addresses || []);
     list.forEach(a => a.isDefault = (a.id === id));
+    S.coAddressId = id;                 // ให้หน้า checkout เปลี่ยนตามทันที
     saveState();
+    await persistAddresses();
     toast("ตั้งเป็น default แล้ว ✓");
     render();
   }
-  function deleteAddress(id) {
+
+  async function deleteAddress(id) {
     if (!confirm("ลบที่อยู่นี้?")) return;
     const rIdx = S.registeredUsers.findIndex(u => u.phone === S.user.phone || u.email === S.user.email);
     if (rIdx >= 0) {
-      S.registeredUsers[rIdx].addresses = S.registeredUsers[rIdx].addresses.filter(a => a.id !== id);
-    } else if (S.user.addresses) {
-      S.user.addresses = S.user.addresses.filter(a => a.id !== id);
+      S.registeredUsers[rIdx].addresses = (S.registeredUsers[rIdx].addresses || []).filter(a => a.id !== id);
     }
+    if (S.user.addresses) S.user.addresses = S.user.addresses.filter(a => a.id !== id);
+    if (S.coAddressId === id) S.coAddressId = null;
     saveState();
+    await persistAddresses();
     toast("ลบแล้ว ✓");
     render();
   }
@@ -4775,7 +4817,7 @@
 
     const fullAddress = `${addr} ต.${g('reg-subdist').trim()||''} อ.${g('reg-dist').trim()||''} จ.${prov} ${zip}`.replace(/\s+/g, ' ').trim();
     const defaultAddress = {
-      id: 'ADDR-' + Date.now(),
+      id: newId('ADDR'),
       label: 'บ้าน',
       name: `${firstName} ${lastName}`, phone,
       addr, subdist: g('reg-subdist').trim(), dist: g('reg-dist').trim(), prov, zip,
@@ -4943,6 +4985,17 @@
       ? `✓ ส่งขึ้น Sheet ครบ ${done} รายชื่อ`
       : `⚠️ ส่งได้ ${done}/${missing.length} — ที่เหลือลองกดอีกครั้ง`);
     render();
+  }
+
+  // ดึงรายชื่อลูกค้า — ห้ามเอาที่อยู่จากชีตมาทับของที่ผู้ใช้เพิ่งแก้ในเครื่อง
+  // (เคยทำให้กด "ตั้งเป็นที่อยู่หลัก" แล้วเด้งกลับเป็นอันเดิม)
+  function keepMyLocalAddresses() {
+    if (!S.user) return;
+    const mine = (S.registeredUsers || []).find(u =>
+      (S.user.email && u.email === S.user.email) || (S.user.phone && u.phone === S.user.phone));
+    if (mine && Array.isArray(S.user.addresses) && S.user.addresses.length) {
+      mine.addresses = S.user.addresses;
+    }
   }
 
   async function pullCustomersFromSheet() {
@@ -5642,7 +5695,7 @@
   // 2) ลบ/แก้ด้วยเลขลำดับ (index) แต่ระหว่างนั้น sync เบื้องหลังอาจสลับลำดับ
   //    ทำให้กดลบอันนึงแต่หายอีกอัน → เปลี่ยนมาอ้างด้วย id ที่ตายตัว
   // ============================================================
-  function bannerId() { return 'BN' + Date.now() + Math.floor(Math.random()*1000); }
+  function bannerId() { return newId('BN'); }
 
   // ถาม แต่กด Cancel = คงค่าเดิม
   function askKeep(label, current) {
@@ -7691,14 +7744,31 @@
         userId: profile.userId, displayName: profile.displayName,
         pictureUrl: profile.pictureUrl,
         email: (liff.getDecodedIDToken && liff.getDecodedIDToken() && liff.getDecodedIDToken().email) || '',
+        // ใบรับรองจาก LINE — ส่งให้เซิร์ฟเวอร์ตรวจ จะได้รู้ว่าเป็นเจ้าของบัญชีจริง
+        idToken: (liff.getIDToken && liff.getIDToken()) || '',
       };
       saveState();
-      autoLoginFromLINE();
+      await autoLoginFromLINE();
     }
   }
 
-  function autoLoginFromLINE() {
+  async function autoLoginFromLINE() {
     const p = S.lineProfile; if (!p) return;
+
+    // ให้เซิร์ฟเวอร์ยืนยันกับ LINE ก่อน แล้วออกบัตรผ่านให้
+    // ไม่งั้นลูกค้า LINE จะดูคำสั่งซื้อของตัวเองจากเครื่องอื่นไม่ได้
+    if (p.idToken && centralApiUrl()) {
+      try {
+        const res = await apiCall("lineLogin", { idToken: p.idToken }, true);
+        if (res && res.ok && res.customer) {
+          S.custSession = res.session || null;
+          finishCustomerLogin(res.customer, { lineUserId: p.userId, pictureUrl: p.pictureUrl });
+          return;
+        }
+        if (res && res.error) console.warn("[LINE] ยืนยันไม่ผ่าน:", res.error);
+      } catch (e) { console.warn("[LINE] ต่อระบบกลางไม่ได้", e); }
+    }
+
     const lineKey = 'LINE:' + p.userId;
     // ค้นบัญชีที่ผูก LINE ไว้แล้ว
     let user = S.registeredUsers.find(u => u.lineUserId === p.userId);
