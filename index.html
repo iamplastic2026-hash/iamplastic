@@ -2822,24 +2822,42 @@
   // ทำครั้งเดียวหลัง render ทุกรอบ ครอบคลุมช่องรหัสผ่านทุกหน้า
   // (หน้าเข้าสู่ระบบ ลูกค้า/แอดมิน, สมัครสมาชิก, ตั้งรหัสใหม่, แก้โปรไฟล์)
   // ============================================================
+  // จำว่าช่องไหนกำลังเปิดดูอยู่ — หน้าเว็บ re-render เองได้ตลอด
+  // (โหลดข้อมูลพื้นหลังเสร็จก็ render) ถ้าไม่จำไว้ รหัสจะเด้งกลับไปซ่อนเอง
+  const _pwShown = new Set();
+
+  function _paintEye(el, btn) {
+    const shown = el.type !== 'password';
+    btn.textContent = shown ? '🙈' : '👁️';
+    btn.setAttribute('aria-label', shown ? 'ซ่อนรหัสผ่าน' : 'ดูรหัสผ่าน');
+    btn.title = shown ? 'ซ่อนรหัสผ่าน' : 'ดูรหัสผ่าน';
+  }
+
   function togglePw(id, btn) {
     const el = document.getElementById(id);
     if (!el) return;
     const show = el.type === 'password';
     el.type = show ? 'text' : 'password';
-    btn.textContent = show ? '🙈' : '👁️';
-    btn.setAttribute('aria-label', show ? 'ซ่อนรหัสผ่าน' : 'ดูรหัสผ่าน');
-    btn.title = show ? 'ซ่อนรหัสผ่าน' : 'ดูรหัสผ่าน';
+    if (show) _pwShown.add(id); else _pwShown.delete(id);
+    _paintEye(el, btn);
     // กลับไปที่ช่องเดิม เคอร์เซอร์อยู่ท้ายสุด จะได้พิมพ์ต่อได้เลย
     try { const n = el.value.length; el.focus(); el.setSelectionRange(n, n); } catch (e) {}
   }
 
   let _pwSeq = 0;
   function attachPwToggles() {
-    const list = document.querySelectorAll('input[type="password"]:not([data-pw-eye])');
+    // ช่องที่เคยกดเปิดดูไว้ หลัง render ใหม่จะกลับเป็น type=password
+    // ต้องเปิดคืนให้ก่อน ไม่งั้นที่ผู้ใช้กดไว้หายไปเฉยๆ
+    _pwShown.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.type === 'password') el.type = 'text';
+    });
+    const list = document.querySelectorAll('input[type="password"]:not([data-pw-eye]), input[type="text"][data-pw-field]:not([data-pw-eye])');
     list.forEach(el => {
       el.setAttribute('data-pw-eye', '1');
+      el.setAttribute('data-pw-field', '1');
       if (!el.id) el.id = 'pw-auto-' + (++_pwSeq);
+      if (_pwShown.has(el.id) && el.type === 'password') el.type = 'text';
       const wrap = document.createElement('span');
       wrap.className = 'pw-wrap';
       el.parentNode.insertBefore(wrap, el);
@@ -2847,11 +2865,9 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'pw-eye';
-      btn.textContent = '👁️';
-      btn.title = 'ดูรหัสผ่าน';
-      btn.setAttribute('aria-label', 'ดูรหัสผ่าน');
       btn.setAttribute('tabindex', '-1');
       btn.onclick = () => togglePw(el.id, btn);
+      _paintEye(el, btn);
       wrap.appendChild(btn);
     });
   }
@@ -4179,6 +4195,9 @@
             <div style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:6px">
               ยังไม่มีบัญชี? <a onclick="go('/register')" style="color:var(--brand);cursor:pointer;font-weight:700">สมัครสมาชิก →</a>
             </div>
+            <div style="text-align:center;font-size:10px;color:var(--text-muted);opacity:.55;margin-top:10px;font-family:monospace">
+              เว็บ v${APP_VERSION}
+            </div>
           ` : `
             <div class="form-field wide" style="margin-bottom:12px">
               <label>Username</label>
@@ -5031,7 +5050,15 @@
 
     regDraftClear();
 
-    if (S.sheetApiUrl && !synced) {
+    // ⚠️ ห้ามบอกว่า "สำเร็จ" ถ้าข้อมูลไม่ได้ขึ้นระบบกลาง
+    // เดิม: ถ้ายังไม่ได้ตั้งค่า URL เลย จะข้ามการส่งทั้งหมดแล้วขึ้น
+    // "✅ สมัครสมาชิกสำเร็จ" ทั้งที่ไม่มีอะไรถูกบันทึกที่ไหนเลย
+    // ลูกค้าเดินจากไปโดยคิดว่ามีบัญชีแล้ว แอดมินก็หารายชื่อไม่เจอ
+    if (!centralApiUrl()) {
+      console.error("[register] ไม่ได้ตั้งค่า Sheet API URL — ข้อมูลอยู่ในเครื่องนี้เท่านั้น");
+      toast("⚠️ สมัครแล้ว แต่ระบบยังไม่ได้เชื่อมกับฐานข้อมูลกลาง");
+      setTimeout(() => toast("กรุณาแจ้งร้าน — ข้อมูลยังอยู่แค่ในเครื่องนี้ อย่าเพิ่งล้างแคช"), 2600);
+    } else if (!synced) {
       toast("⚠️ สมัครแล้วแต่ยังบันทึกขึ้นระบบกลางไม่ได้ — จะลองส่งใหม่ให้อัตโนมัติ");
     } else {
       toast(`✅ สมัครสมาชิกสำเร็จ · ยินดีต้อนรับ คุณ${firstName}!`);
